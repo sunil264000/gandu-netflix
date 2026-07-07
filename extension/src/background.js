@@ -141,6 +141,9 @@ async function activate(licenseKey) {
     plan: r.plan,
     credits: r.credits_remaining,
     activated_at: Date.now(),
+    expires_at: r.expires_at ? new Date(r.expires_at).getTime() : null,
+    duration_seconds: r.duration_seconds ?? 0,
+    is_trial: !!r.is_trial,
   });
   await refreshToken();
   return r;
