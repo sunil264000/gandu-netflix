@@ -1,0 +1,1 @@
+UPDATE public.licenses SET key = 'LI-' || substring(key from 5) WHERE key LIKE 'LIF-%';
