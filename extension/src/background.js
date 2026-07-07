@@ -219,6 +219,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           revoke_reason: await S.get("revoke_reason"),
           credits: await S.get("credits"),
           plan: await S.get("plan"),
+          expires_at: await S.get("expires_at"),
+          duration_seconds: await S.get("duration_seconds"),
+          is_trial: await S.get("is_trial"),
         });
       } else if (msg.type === "sign_out") { await S.clear(); sendResponse({ ok: true }); }
       else sendResponse({ error: "unknown" });
