@@ -1,18 +1,29 @@
 {
   "manifest_version": 3,
   "name": "Lovable Infinity",
-  "version": "2.0.0",
-  "description": "AI assistant — hardened, license-gated.",
+  "version": "2.0.1",
+  "description": "AI assistant — hardened, license-gated with live countdown.",
   "permissions": ["storage", "activeTab", "sidePanel", "alarms"],
   "host_permissions": ["<all_urls>"],
-  "action": { "default_popup": "popup.html", "default_icon": "icon.png" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Lovable Infinity",
+    "default_icon": {
+      "16": "icon.png",
+      "32": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
   "background": { "service_worker": "background.js" },
   "side_panel": { "default_path": "sidepanel.html" },
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    "extension_pages": "script-src 'self'; object-src 'self'"
   },
-  "icons": { "48": "icon.png", "128": "icon.png" },
-  "web_accessible_resources": [
-    { "resources": ["sidepanel.html"], "matches": ["<all_urls>"] }
-  ]
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
 }
