@@ -172,8 +172,9 @@ async function heartbeat() {
     }).then((x) => x.json());
     if (r.status === "revoked") {
       console.warn("License revoked:", r.reason);
+      const wasExpired = r.reason === "license_expired" || r.reason === "revoked";
       await S.clear();
-      await S.set({ revoked: true, revoke_reason: r.reason });
+      await S.set({ revoked: true, revoke_reason: wasExpired ? "expired" : (r.reason ?? "revoked") });
     } else if (r.status === "ok") {
       await S.set({ credits: r.credits_remaining });
     }
