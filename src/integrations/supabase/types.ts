@@ -14,7 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      archives: {
+        Row: {
+          created_at: string
+          filename: string
+          id: string
+          mime_type: string | null
+          note: string | null
+          size_bytes: number
+          storage_path: string
+        }
+        Insert: {
+          created_at?: string
+          filename: string
+          id?: string
+          mime_type?: string | null
+          note?: string | null
+          size_bytes: number
+          storage_path: string
+        }
+        Update: {
+          created_at?: string
+          filename?: string
+          id?: string
+          mime_type?: string | null
+          note?: string | null
+          size_bytes?: number
+          storage_path?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
