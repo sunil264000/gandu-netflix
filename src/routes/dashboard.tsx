@@ -183,10 +183,10 @@ function LicenseCard({ lic, now, onCopy, copied, highlight }: { lic: Lic; now: n
   const remainingSec = expMs ? Math.max(0, Math.floor((expMs - now) / 1000)) : lic.duration_seconds;
   const expired = expMs !== null && remainingSec <= 0;
   const status = expired ? "expired" : !activated ? "not-activated" : "running";
-  const pillStyle = { ...styles.pill, background: expired ? "#fee2e2" : status === "running" ? "#dcfce7" : "#e0e7ff", color: expired ? "#991b1b" : status === "running" ? "#166534" : "#3730a3" };
+  const pillStyle: React.CSSProperties = { ...styles.pill, background: expired ? "rgba(239,68,68,.15)" : status === "running" ? "rgba(16,185,129,.15)" : "rgba(99,102,241,.15)", color: expired ? "#fca5a5" : status === "running" ? "#6ee7b7" : "#a5b4fc", border: `1px solid ${expired ? "rgba(239,68,68,.3)" : status === "running" ? "rgba(16,185,129,.3)" : "rgba(99,102,241,.3)"}` };
 
   return (
-    <div style={{ ...styles.card, ...(highlight ? styles.cardHi : {}) }}>
+    <div style={{ ...styles.card, ...(highlight ? styles.cardHi : {}) }} className="fx-tilt">
       <div style={styles.licTop}>
         <div>
           <div style={styles.licPlan}>{lic.plan_code.toUpperCase()}{lic.is_trial ? " · Trial" : ""}</div>
@@ -196,7 +196,7 @@ function LicenseCard({ lic, now, onCopy, copied, highlight }: { lic: Lic; now: n
       </div>
       <div style={styles.keyRow}>
         <code style={styles.keyText}>{lic.key}</code>
-        <button onClick={() => onCopy(lic.key)} style={styles.copyBtn}>{copied ? "Copied ✓" : "Copy"}</button>
+        <button onClick={() => onCopy(lic.key)} style={styles.copyBtn} className="fx-cta">{copied ? "Copied ✓" : "Copy"}</button>
       </div>
       {activated && lic.expires_at && !expired && (
         <div style={styles.licFoot}>Expires {new Date(lic.expires_at).toLocaleString()}</div>
