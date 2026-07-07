@@ -14,6 +14,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      anomaly_flags: {
+        Row: {
+          created_at: string
+          id: number
+          kind: string
+          license_id: string
+          meta: Json
+          resolved: boolean
+          severity: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          kind: string
+          license_id: string
+          meta?: Json
+          resolved?: boolean
+          severity?: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          kind?: string
+          license_id?: string
+          meta?: Json
+          resolved?: boolean
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anomaly_flags_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       archives: {
         Row: {
           created_at: string
@@ -44,15 +82,297 @@ export type Database = {
         }
         Relationships: []
       }
+      devices: {
+        Row: {
+          created_at: string
+          ext_version: string | null
+          fingerprint_hash: string
+          first_seen_ip: string | null
+          id: string
+          last_seen_at: string
+          last_seen_ip: string | null
+          license_id: string
+          revoked: boolean
+          user_agent: string | null
+        }
+        Insert: {
+          created_at?: string
+          ext_version?: string | null
+          fingerprint_hash: string
+          first_seen_ip?: string | null
+          id?: string
+          last_seen_at?: string
+          last_seen_ip?: string | null
+          license_id: string
+          revoked?: boolean
+          user_agent?: string | null
+        }
+        Update: {
+          created_at?: string
+          ext_version?: string | null
+          fingerprint_hash?: string
+          first_seen_ip?: string | null
+          id?: string
+          last_seen_at?: string
+          last_seen_ip?: string | null
+          license_id?: string
+          revoked?: boolean
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "devices_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kill_switch: {
+        Row: {
+          created_at: string
+          license_id: string
+          reason: string | null
+        }
+        Insert: {
+          created_at?: string
+          license_id: string
+          reason?: string | null
+        }
+        Update: {
+          created_at?: string
+          license_id?: string
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kill_switch_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: true
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      licenses: {
+        Row: {
+          created_at: string
+          credits_remaining: number
+          credits_reset_at: string
+          hmac_secret: string
+          id: string
+          key: string
+          notes: string | null
+          plan_code: string
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          credits_remaining?: number
+          credits_reset_at?: string
+          hmac_secret: string
+          id?: string
+          key: string
+          notes?: string | null
+          plan_code: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          credits_remaining?: number
+          credits_reset_at?: string
+          hmac_secret?: string
+          id?: string
+          key?: string
+          notes?: string | null
+          plan_code?: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "licenses_plan_code_fkey"
+            columns: ["plan_code"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      plans: {
+        Row: {
+          code: string
+          created_at: string
+          features: Json
+          is_public: boolean
+          max_devices: number
+          monthly_credits: number
+          name: string
+          price_inr: number
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          features?: Json
+          is_public?: boolean
+          max_devices?: number
+          monthly_credits?: number
+          name: string
+          price_inr?: number
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          features?: Json
+          is_public?: boolean
+          max_devices?: number
+          monthly_credits?: number
+          name?: string
+          price_inr?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sessions: {
+        Row: {
+          created_at: string
+          device_id: string
+          expires_at: string
+          id: string
+          jti: string
+          license_id: string
+          revoked: boolean
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          expires_at: string
+          id?: string
+          jti: string
+          license_id: string
+          revoked?: boolean
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          expires_at?: string
+          id?: string
+          jti?: string
+          license_id?: string
+          revoked?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sessions_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      usage_events: {
+        Row: {
+          action: string
+          created_at: string
+          credits_spent: number
+          device_id: string | null
+          id: number
+          ip: string | null
+          license_id: string
+          meta: Json
+          ua: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          credits_spent?: number
+          device_id?: string | null
+          id?: number
+          ip?: string | null
+          license_id: string
+          meta?: Json
+          ua?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          credits_spent?: number
+          device_id?: string | null
+          id?: number
+          ip?: string | null
+          license_id?: string
+          meta?: Json
+          ua?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "usage_events_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "usage_events_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -179,6 +499,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
