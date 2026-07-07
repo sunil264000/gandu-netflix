@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { PageTransition, RouteLoadingBar, fxKeyframes } from "../components/PageFX";
 
 function NotFoundComponent() {
   return (
