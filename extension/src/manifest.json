@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Lovable Infinity",
+  "name": "AI Infinity",
   "version": "2.0.1",
   "description": "AI assistant — hardened, license-gated with live countdown.",
   "permissions": ["storage", "activeTab", "sidePanel", "alarms"],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Lovable Infinity",
+    "default_title": "AI Infinity",
     "default_icon": {
       "16": "icon.png",
       "32": "icon.png",

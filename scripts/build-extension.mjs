@@ -3,7 +3,7 @@
 // - Runs javascript-obfuscator on background.js + popup.js
 // - Computes SHA-256 of the obfuscated background.js and injects it back as
 //   the __INTEGRITY_BG__ constant (self-integrity check on load).
-// - Zips the result to public/Lovable-Infinity-Hardened.zip
+// - Zips the result to public/AI-Infinity-Hardened.zip
 //
 // Usage:  API_BASE=https://your-project.lovable.app node scripts/build-extension.mjs
 
@@ -17,7 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const SRC = join(ROOT, "extension/src");
 const OUT = join(ROOT, "extension/dist");
-const ZIP = join(ROOT, "public/Lovable-Infinity-Hardened.zip");
+const ZIP = join(ROOT, "public/AI-Infinity-Hardened.zip");
 
 const API_BASE = process.env.API_BASE ?? "https://id-preview--e1e099e5-ccdc-41ee-a7f2-492f7a2f6638.lovable.app";
 console.log("→ API_BASE =", API_BASE);

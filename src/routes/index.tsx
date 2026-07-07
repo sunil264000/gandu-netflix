@@ -1,4 +1,4 @@
-// Landing page — Lovable Infinity marketing site.
+// Landing page — AI Infinity marketing site.
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,9 +7,9 @@ export const Route = createFileRoute("/")({
   component: Landing,
   head: () => ({
     meta: [
-      { title: "Lovable Infinity — Unlimited AI credits, on any project" },
+      { title: "AI Infinity — Unlimited AI credits, on any project" },
       { name: "description", content: "Extension that gives you unlimited Lovable AI credits. Start with a 15-minute free trial, upgrade to daily / weekly / monthly plans. Countdown starts on first activation." },
-      { property: "og:title", content: "Lovable Infinity — Unlimited AI, unlimited creativity" },
+      { property: "og:title", content: "AI Infinity — Unlimited AI, unlimited creativity" },
       { property: "og:description", content: "15-min free trial. Then day/week/month/year plans starting at ₹150." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -33,7 +33,7 @@ function Landing() {
   return (
     <div style={s.page}>
       <header style={s.nav}>
-        <Link to="/" style={s.logo}><span style={s.logoMark}/> Lovable Infinity</Link>
+        <Link to="/" style={s.logo}><span style={s.logoMark}/> AI Infinity</Link>
         <nav style={s.navRight}>
           <a href="#pricing" style={s.navLink}>Pricing</a>
           <a href="#how" style={s.navLink}>How it works</a>
@@ -88,7 +88,7 @@ function Landing() {
       </section>
 
       <section style={s.section}>
-        <h2 style={s.h2}>Why Lovable Infinity</h2>
+        <h2 style={s.h2}>Why AI Infinity</h2>
         <div style={s.feats}>
           {[
             { t: "Hardware-locked", d: "Every key binds to your device fingerprint. Nobody else can use it — even if leaked." },
@@ -105,7 +105,7 @@ function Landing() {
       </section>
 
       <footer style={s.footer}>
-        <div>© {new Date().getFullYear()} Lovable Infinity</div>
+        <div>© {new Date().getFullYear()} AI Infinity</div>
         <div><Link to="/admin" style={s.footerLink}>Admin</Link></div>
       </footer>
     </div>
