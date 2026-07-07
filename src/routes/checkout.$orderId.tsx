@@ -1,9 +1,10 @@
-// Stub checkout — instantly marks order paid + mints license. Replace with real gateway later.
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+// Stub checkout — instantly marks order paid + mints license.
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getOrder, confirmStubPayment } from "@/lib/ext/user.functions";
+import { PageBG } from "@/components/PageFX";
 
 export const Route = createFileRoute("/checkout/$orderId")({ component: Checkout, ssr: false });
 
@@ -39,32 +40,59 @@ function Checkout() {
     catch (e) { setErr((e as Error).message); setBusy(false); }
   };
 
-  if (err) return <div style={s.page}><div style={s.card}><h1 style={s.h1}>Something went wrong</h1><p style={s.err}>{err}</p></div></div>;
-  if (!info) return <div style={s.page}><div style={s.card}>Loading…</div></div>;
-
   return (
     <div style={s.page}>
-      <div style={s.card}>
-        <div style={s.badge}>Test gateway · no real charge</div>
-        <h1 style={s.h1}>Confirm your order</h1>
-        <div style={s.row}><span>Plan</span><strong>{info.plan?.name ?? info.order.plan_code}</strong></div>
-        <div style={s.row}><span>Amount</span><strong>₹{info.order.amount_inr.toLocaleString("en-IN")}</strong></div>
-        <div style={s.row}><span>Order ID</span><code style={s.mono}>{info.order.id.slice(0, 8)}…</code></div>
-        <button onClick={pay} disabled={busy} style={s.btn}>{busy ? "Processing…" : `Pay ₹${info.order.amount_inr.toLocaleString("en-IN")}`}</button>
-        <p style={s.note}>A real payment gateway will replace this screen. Your license is delivered instantly on payment.</p>
+      <PageBG />
+      <Link to="/dashboard" style={s.back}>← Dashboard</Link>
+      <div style={s.card} className="fx-tilt">
+        {err ? (
+          <>
+            <h1 style={s.h1}>Something went wrong</h1>
+            <p style={s.errText}>{err}</p>
+          </>
+        ) : !info ? (
+          <div style={s.loading}>
+            <div style={s.spinner} />
+            <span>Loading order…</span>
+          </div>
+        ) : (
+          <>
+            <div style={s.badge}>◉ Test gateway — no real charge</div>
+            <h1 style={s.h1}>Confirm your order</h1>
+            <p style={s.subtitle}>Your license is minted the moment payment is confirmed.</p>
+
+            <div style={s.rows}>
+              <div style={s.row}><span style={s.rowK}>Plan</span><strong style={s.rowV}>{info.plan?.name ?? info.order.plan_code}</strong></div>
+              <div style={s.row}><span style={s.rowK}>Amount</span><strong style={s.rowV}>₹{info.order.amount_inr.toLocaleString("en-IN")}</strong></div>
+              <div style={s.row}><span style={s.rowK}>Order ID</span><code style={s.mono}>{info.order.id.slice(0, 8)}…</code></div>
+            </div>
+
+            <button onClick={pay} disabled={busy} style={s.pay} className="fx-cta fx-cta-primary">
+              {busy ? "Processing…" : `Pay ₹${info.order.amount_inr.toLocaleString("en-IN")}`}
+            </button>
+            <p style={s.note}>A real payment gateway will replace this screen. Your license is delivered instantly.</p>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
 const s: Record<string, React.CSSProperties> = {
-  page: { minHeight: "100vh", background: "#f8fafc", display: "grid", placeItems: "center", padding: 20, fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" },
-  card: { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 32, maxWidth: 440, width: "100%" },
-  badge: { display: "inline-block", background: "#fef3c7", color: "#78350f", padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600, marginBottom: 16 },
-  h1: { fontSize: 22, fontWeight: 700, margin: "0 0 20px" },
-  row: { display: "flex", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid #f1f5f9", fontSize: 14 },
-  mono: { fontFamily: "'SF Mono', Menlo, monospace", fontSize: 13 },
-  btn: { width: "100%", marginTop: 20, background: "#0f172a", color: "#fff", border: "none", padding: "14px", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer" },
-  note: { fontSize: 12, color: "#64748b", marginTop: 16, textAlign: "center" as const },
-  err: { color: "#b91c1c" },
+  page: { minHeight: "100vh", background: "#07070c", color: "#e5e7eb", display: "grid", placeItems: "center", padding: 20, fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif", position: "relative", overflow: "hidden" },
+  back: { position: "absolute", top: 24, left: 24, color: "#94a3b8", textDecoration: "none", fontSize: 14, zIndex: 2 },
+  card: { position: "relative", zIndex: 1, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 20, padding: 36, maxWidth: 460, width: "100%", backdropFilter: "blur(14px)", boxShadow: "0 30px 80px -20px rgba(0,0,0,.5)" },
+  badge: { display: "inline-block", background: "rgba(245,158,11,.12)", border: "1px solid rgba(245,158,11,.3)", color: "#fbbf24", padding: "5px 12px", borderRadius: 999, fontSize: 11, fontWeight: 600, marginBottom: 18 },
+  h1: { fontSize: 26, fontWeight: 800, margin: "0 0 8px", color: "#fff", letterSpacing: -0.5 },
+  subtitle: { color: "#94a3b8", fontSize: 14, margin: "0 0 24px" },
+  rows: { background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.06)", borderRadius: 12, padding: "4px 16px", marginBottom: 20 },
+  row: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "1px solid rgba(255,255,255,.05)", fontSize: 14 },
+  rowK: { color: "#94a3b8" },
+  rowV: { color: "#fff" },
+  mono: { fontFamily: "'SF Mono', Menlo, monospace", fontSize: 13, color: "#fff" },
+  pay: { width: "100%", background: "linear-gradient(135deg,#3b82f6,#6366f1,#a855f7)", color: "#fff", border: "none", padding: "14px", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 15px 35px -10px rgba(99,102,241,.6)" },
+  note: { fontSize: 12, color: "#64748b", marginTop: 16, textAlign: "center" },
+  errText: { color: "#fca5a5", background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", padding: 12, borderRadius: 8, fontSize: 13 },
+  loading: { display: "flex", alignItems: "center", gap: 12, color: "#94a3b8", padding: "20px 0" },
+  spinner: { width: 18, height: 18, border: "2px solid rgba(255,255,255,.15)", borderTopColor: "#a855f7", borderRadius: "50%", animation: "fx-spin 0.8s linear infinite" },
 };

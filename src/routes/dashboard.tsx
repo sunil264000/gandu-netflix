@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   listPublicPlans, claimTrial, listMyLicenses, createOrder,
 } from "@/lib/ext/user.functions";
+import { PageBG, Reveal } from "@/components/PageFX";
 
 export const Route = createFileRoute("/dashboard")({ component: Dashboard, ssr: false });
 
@@ -103,64 +104,73 @@ function Dashboard() {
 
   const signOut = async () => { await supabase.auth.signOut(); nav({ to: "/auth" }); };
 
-  if (loading) return <div style={styles.loading}>Loading…</div>;
+  if (loading) return <div style={styles.loading}><div style={styles.spinner} /> Loading…</div>;
 
   return (
     <div style={styles.page}>
+      <PageBG />
       <header style={styles.header}>
         <Link to="/" style={styles.logo}><span style={styles.logoMark}/> AI Infinity</Link>
         <div style={styles.headerRight}>
           <span style={styles.email}>{email}</span>
-          <button onClick={signOut} style={styles.linkBtn}>Sign out</button>
+          <button onClick={signOut} style={styles.linkBtn} className="fx-cta">Sign out</button>
         </div>
       </header>
 
       <main style={styles.main}>
         {msg && <div style={styles.alert}>{msg}</div>}
 
-        <section style={styles.section}>
-          <h2 style={styles.h2}>Your free trial</h2>
-          {!trial ? (
-            <div style={styles.card}>
-              <div style={styles.trialTitle}>15 minutes on us</div>
-              <p style={styles.trialSub}>Instant activation. Timer starts the moment you paste the key into the extension — not before.</p>
-              <button onClick={doClaim} disabled={claiming} style={styles.primaryBtn}>
-                {claiming ? "Generating…" : "Claim my 15-min key"}
-              </button>
-            </div>
-          ) : (
-            <LicenseCard lic={trial} now={now} onCopy={copy} copied={copied === trial.key} highlight />
-          )}
-        </section>
-
-        <section style={styles.section}>
-          <h2 style={styles.h2}>Upgrade to a paid plan</h2>
-          <p style={styles.sub}>Same instant delivery. Countdown starts on first activation in the extension.</p>
-          <div style={styles.plansGrid}>
-            {paidPlans.map(p => (
-              <div key={p.code} style={styles.planCard}>
-                <div style={styles.planName}>{p.name}</div>
-                <div style={styles.planPrice}>₹{p.price_inr.toLocaleString("en-IN")}</div>
-                <div style={styles.planMeta}>
-                  <div>{durationLabel(p.duration_seconds)}</div>
-                  <div>{p.max_devices} device{p.max_devices > 1 ? "s" : ""}</div>
-                  <div>{p.monthly_credits.toLocaleString()} credits</div>
-                </div>
-                <button onClick={() => doBuy(p.code)} disabled={buying === p.code} style={styles.buyBtn}>
-                  {buying === p.code ? "Redirecting…" : "Buy now"}
+        <Reveal>
+          <section style={styles.section}>
+            <h2 style={styles.h2}>Your free trial</h2>
+            {!trial ? (
+              <div style={styles.card} className="fx-tilt">
+                <div style={styles.trialTitle}>15 minutes on us</div>
+                <p style={styles.trialSub}>Instant activation. Timer starts the moment you paste the key into the extension — not before.</p>
+                <button onClick={doClaim} disabled={claiming} style={styles.primaryBtn} className="fx-cta fx-cta-primary">
+                  {claiming ? "Generating…" : "Claim my 15-min key →"}
                 </button>
               </div>
-            ))}
-          </div>
-        </section>
+            ) : (
+              <LicenseCard lic={trial} now={now} onCopy={copy} copied={copied === trial.key} highlight />
+            )}
+          </section>
+        </Reveal>
 
-        {paid.length > 0 && (
+        <Reveal delay={80}>
           <section style={styles.section}>
-            <h2 style={styles.h2}>Your licenses</h2>
-            <div style={styles.licList}>
-              {paid.map(l => <LicenseCard key={l.id} lic={l} now={now} onCopy={copy} copied={copied === l.key} />)}
+            <h2 style={styles.h2}>Upgrade to a paid plan</h2>
+            <p style={styles.sub}>Same instant delivery. Countdown starts on first activation in the extension.</p>
+            <div style={styles.plansGrid}>
+              {paidPlans.map((p, i) => (
+                <Reveal key={p.code} delay={i * 60}>
+                  <div style={styles.planCard} className="fx-tilt">
+                    <div style={styles.planName}>{p.name}</div>
+                    <div style={styles.planPrice}><span style={styles.planCurrency}>₹</span>{p.price_inr.toLocaleString("en-IN")}</div>
+                    <div style={styles.planMeta}>
+                      <div>◷ {durationLabel(p.duration_seconds)}</div>
+                      <div>⌘ {p.max_devices} device{p.max_devices > 1 ? "s" : ""}</div>
+                      <div>✦ {p.monthly_credits.toLocaleString()} credits</div>
+                    </div>
+                    <button onClick={() => doBuy(p.code)} disabled={buying === p.code} style={styles.buyBtn} className="fx-cta fx-cta-primary">
+                      {buying === p.code ? "Redirecting…" : "Buy now"}
+                    </button>
+                  </div>
+                </Reveal>
+              ))}
             </div>
           </section>
+        </Reveal>
+
+        {paid.length > 0 && (
+          <Reveal delay={100}>
+            <section style={styles.section}>
+              <h2 style={styles.h2}>Your licenses</h2>
+              <div style={styles.licList}>
+                {paid.map(l => <LicenseCard key={l.id} lic={l} now={now} onCopy={copy} copied={copied === l.key} />)}
+              </div>
+            </section>
+          </Reveal>
         )}
       </main>
     </div>
@@ -173,10 +183,10 @@ function LicenseCard({ lic, now, onCopy, copied, highlight }: { lic: Lic; now: n
   const remainingSec = expMs ? Math.max(0, Math.floor((expMs - now) / 1000)) : lic.duration_seconds;
   const expired = expMs !== null && remainingSec <= 0;
   const status = expired ? "expired" : !activated ? "not-activated" : "running";
-  const pillStyle = { ...styles.pill, background: expired ? "#fee2e2" : status === "running" ? "#dcfce7" : "#e0e7ff", color: expired ? "#991b1b" : status === "running" ? "#166534" : "#3730a3" };
+  const pillStyle: React.CSSProperties = { ...styles.pill, background: expired ? "rgba(239,68,68,.15)" : status === "running" ? "rgba(16,185,129,.15)" : "rgba(99,102,241,.15)", color: expired ? "#fca5a5" : status === "running" ? "#6ee7b7" : "#a5b4fc", border: `1px solid ${expired ? "rgba(239,68,68,.3)" : status === "running" ? "rgba(16,185,129,.3)" : "rgba(99,102,241,.3)"}` };
 
   return (
-    <div style={{ ...styles.card, ...(highlight ? styles.cardHi : {}) }}>
+    <div style={{ ...styles.card, ...(highlight ? styles.cardHi : {}) }} className="fx-tilt">
       <div style={styles.licTop}>
         <div>
           <div style={styles.licPlan}>{lic.plan_code.toUpperCase()}{lic.is_trial ? " · Trial" : ""}</div>
@@ -186,7 +196,7 @@ function LicenseCard({ lic, now, onCopy, copied, highlight }: { lic: Lic; now: n
       </div>
       <div style={styles.keyRow}>
         <code style={styles.keyText}>{lic.key}</code>
-        <button onClick={() => onCopy(lic.key)} style={styles.copyBtn}>{copied ? "Copied ✓" : "Copy"}</button>
+        <button onClick={() => onCopy(lic.key)} style={styles.copyBtn} className="fx-cta">{copied ? "Copied ✓" : "Copy"}</button>
       </div>
       {activated && lic.expires_at && !expired && (
         <div style={styles.licFoot}>Expires {new Date(lic.expires_at).toLocaleString()}</div>
@@ -207,37 +217,39 @@ function errorText(e?: string): string {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { minHeight: "100vh", background: "#f8fafc", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: "#0f172a" },
-  loading: { minHeight: "100vh", display: "grid", placeItems: "center", color: "#64748b" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 32px", borderBottom: "1px solid #e2e8f0", background: "#fff" },
-  logo: { display: "flex", alignItems: "center", gap: 10, fontWeight: 700, fontSize: 16, color: "#0f172a", textDecoration: "none" },
-  logoMark: { width: 24, height: 24, borderRadius: 8, background: "linear-gradient(135deg,#3b82f6,#6366f1)", display: "inline-block" },
+  page: { minHeight: "100vh", background: "#07070c", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: "#e5e7eb", position: "relative", overflow: "hidden" },
+  loading: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, color: "#94a3b8", background: "#07070c" },
+  spinner: { width: 18, height: 18, border: "2px solid rgba(255,255,255,.15)", borderTopColor: "#a855f7", borderRadius: "50%", animation: "fx-spin 0.8s linear infinite" },
+  header: { position: "relative", zIndex: 2, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 40px", borderBottom: "1px solid rgba(255,255,255,.06)", background: "rgba(7,7,12,.6)", backdropFilter: "blur(14px)" },
+  logo: { display: "flex", alignItems: "center", gap: 10, fontWeight: 700, fontSize: 16, color: "#fff", textDecoration: "none" },
+  logoMark: { width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg,#3b82f6,#a855f7,#ec4899)", display: "inline-block", boxShadow: "0 0 20px rgba(168,85,247,.5)" },
   headerRight: { display: "flex", alignItems: "center", gap: 16 },
-  email: { fontSize: 13, color: "#64748b" },
-  linkBtn: { background: "none", border: "1px solid #e2e8f0", padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13 },
-  main: { maxWidth: 1080, margin: "0 auto", padding: "40px 32px 80px" },
+  email: { fontSize: 13, color: "#94a3b8" },
+  linkBtn: { background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.1)", color: "#e5e7eb", padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13 },
+  main: { position: "relative", zIndex: 1, maxWidth: 1100, margin: "0 auto", padding: "48px 32px 80px" },
   section: { marginBottom: 48 },
-  h2: { fontSize: 20, fontWeight: 700, margin: "0 0 4px" },
-  sub: { color: "#64748b", margin: "0 0 20px", fontSize: 14 },
-  card: { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 24 },
-  cardHi: { border: "2px solid #3b82f6", boxShadow: "0 10px 30px -12px rgba(59,130,246,.35)" },
-  trialTitle: { fontSize: 22, fontWeight: 700 },
-  trialSub: { color: "#64748b", margin: "6px 0 16px", fontSize: 14 },
-  primaryBtn: { background: "#0f172a", color: "#fff", border: "none", padding: "12px 22px", borderRadius: 10, fontWeight: 600, cursor: "pointer", fontSize: 14 },
-  alert: { background: "#fef3c7", border: "1px solid #fcd34d", color: "#78350f", padding: "12px 16px", borderRadius: 10, marginBottom: 20, fontSize: 14 },
-  plansGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 },
-  planCard: { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, display: "flex", flexDirection: "column" },
-  planName: { fontSize: 14, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5 },
-  planPrice: { fontSize: 30, fontWeight: 800, margin: "10px 0 4px" },
-  planMeta: { color: "#64748b", fontSize: 13, display: "flex", flexDirection: "column", gap: 4, marginBottom: 16 },
-  buyBtn: { background: "#3b82f6", color: "#fff", border: "none", padding: "10px 14px", borderRadius: 10, fontWeight: 600, cursor: "pointer", marginTop: "auto" },
+  h2: { fontSize: 24, fontWeight: 800, margin: "0 0 6px", color: "#fff", letterSpacing: -0.5 },
+  sub: { color: "#94a3b8", margin: "0 0 22px", fontSize: 14 },
+  card: { background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 20, padding: 26, backdropFilter: "blur(10px)" },
+  cardHi: { border: "1px solid rgba(99,102,241,.5)", background: "linear-gradient(180deg, rgba(99,102,241,.1), rgba(168,85,247,.03))", boxShadow: "0 20px 50px -20px rgba(99,102,241,.5)" },
+  trialTitle: { fontSize: 24, fontWeight: 800, color: "#fff" },
+  trialSub: { color: "#94a3b8", margin: "8px 0 18px", fontSize: 14, lineHeight: 1.55 },
+  primaryBtn: { background: "linear-gradient(135deg,#3b82f6,#6366f1,#a855f7)", color: "#fff", border: "none", padding: "13px 24px", borderRadius: 12, fontWeight: 700, cursor: "pointer", fontSize: 14, boxShadow: "0 15px 35px -10px rgba(99,102,241,.6)" },
+  alert: { background: "rgba(245,158,11,.1)", border: "1px solid rgba(245,158,11,.3)", color: "#fbbf24", padding: "12px 16px", borderRadius: 10, marginBottom: 20, fontSize: 14 },
+  plansGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 },
+  planCard: { background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 16, padding: 22, display: "flex", flexDirection: "column", backdropFilter: "blur(10px)", height: "100%" },
+  planName: { fontSize: 12, fontWeight: 700, color: "#93c5fd", textTransform: "uppercase", letterSpacing: 1 },
+  planPrice: { fontSize: 32, fontWeight: 800, color: "#fff", margin: "12px 0 6px", display: "flex", alignItems: "baseline", gap: 4 },
+  planCurrency: { fontSize: 18, color: "#94a3b8", fontWeight: 600 },
+  planMeta: { color: "#94a3b8", fontSize: 13, display: "flex", flexDirection: "column", gap: 6, marginBottom: 18 },
+  buyBtn: { background: "linear-gradient(135deg,#3b82f6,#a855f7)", color: "#fff", border: "none", padding: "11px 14px", borderRadius: 10, fontWeight: 700, cursor: "pointer", marginTop: "auto", fontSize: 14 },
   licList: { display: "flex", flexDirection: "column", gap: 12 },
-  licTop: { display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 12 },
-  licPlan: { fontSize: 12, fontWeight: 700, color: "#475569", letterSpacing: 0.5 },
-  licDur: { fontSize: 18, fontWeight: 700, marginTop: 2 },
-  pill: { padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600 },
-  keyRow: { display: "flex", gap: 8, alignItems: "center", background: "#f1f5f9", padding: 10, borderRadius: 10 },
-  keyText: { flex: 1, fontFamily: "'SF Mono', Menlo, monospace", fontSize: 13, wordBreak: "break-all" },
-  copyBtn: { background: "#0f172a", color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 },
-  licFoot: { marginTop: 12, fontSize: 12, color: "#64748b" },
+  licTop: { display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 14, gap: 10 },
+  licPlan: { fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: 1, textTransform: "uppercase" },
+  licDur: { fontSize: 20, fontWeight: 800, marginTop: 4, color: "#fff" },
+  pill: { padding: "5px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" },
+  keyRow: { display: "flex", gap: 8, alignItems: "center", background: "rgba(15,23,42,.5)", padding: 10, borderRadius: 10, border: "1px solid rgba(255,255,255,.05)" },
+  keyText: { flex: 1, fontFamily: "'SF Mono', Menlo, monospace", fontSize: 13, wordBreak: "break-all", color: "#93c5fd" },
+  copyBtn: { background: "rgba(255,255,255,.06)", color: "#fff", border: "1px solid rgba(255,255,255,.1)", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 },
+  licFoot: { marginTop: 12, fontSize: 12, color: "#94a3b8" },
 };
