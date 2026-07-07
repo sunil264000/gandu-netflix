@@ -16,7 +16,7 @@ function Auth() {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (data.user) nav({ to: "/admin" });
+      if (data.user) nav({ to: "/dashboard" });
     });
   }, [nav]);
 
