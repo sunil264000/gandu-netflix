@@ -9,14 +9,19 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiPublicExtTokenRouteImport } from './routes/api/public/ext/token'
 import { Route as ApiPublicExtHeartbeatRouteImport } from './routes/api/public/ext/heartbeat'
 import { Route as ApiPublicExtExecRouteImport } from './routes/api/public/ext/exec'
-import { Route as ApiPublicExtAdminRouteImport } from './routes/api/public/ext/admin'
 import { Route as ApiPublicExtActivateRouteImport } from './routes/api/public/ext/activate'
 
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -42,11 +47,6 @@ const ApiPublicExtExecRoute = ApiPublicExtExecRouteImport.update({
   path: '/api/public/ext/exec',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicExtAdminRoute = ApiPublicExtAdminRouteImport.update({
-  id: '/api/public/ext/admin',
-  path: '/api/public/ext/admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiPublicExtActivateRoute = ApiPublicExtActivateRouteImport.update({
   id: '/api/public/ext/activate',
   path: '/api/public/ext/activate',
@@ -56,8 +56,8 @@ const ApiPublicExtActivateRoute = ApiPublicExtActivateRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/auth': typeof AuthRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
-  '/api/public/ext/admin': typeof ApiPublicExtAdminRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
   '/api/public/ext/token': typeof ApiPublicExtTokenRoute
@@ -65,8 +65,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/auth': typeof AuthRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
-  '/api/public/ext/admin': typeof ApiPublicExtAdminRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
   '/api/public/ext/token': typeof ApiPublicExtTokenRoute
@@ -75,8 +75,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/auth': typeof AuthRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
-  '/api/public/ext/admin': typeof ApiPublicExtAdminRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
   '/api/public/ext/token': typeof ApiPublicExtTokenRoute
@@ -86,8 +86,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/auth'
     | '/api/public/ext/activate'
-    | '/api/public/ext/admin'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
     | '/api/public/ext/token'
@@ -95,8 +95,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/auth'
     | '/api/public/ext/activate'
-    | '/api/public/ext/admin'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
     | '/api/public/ext/token'
@@ -104,8 +104,8 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/auth'
     | '/api/public/ext/activate'
-    | '/api/public/ext/admin'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
     | '/api/public/ext/token'
@@ -114,8 +114,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  AuthRoute: typeof AuthRoute
   ApiPublicExtActivateRoute: typeof ApiPublicExtActivateRoute
-  ApiPublicExtAdminRoute: typeof ApiPublicExtAdminRoute
   ApiPublicExtExecRoute: typeof ApiPublicExtExecRoute
   ApiPublicExtHeartbeatRoute: typeof ApiPublicExtHeartbeatRoute
   ApiPublicExtTokenRoute: typeof ApiPublicExtTokenRoute
@@ -123,6 +123,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin': {
       id: '/admin'
       path: '/admin'
@@ -158,13 +165,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicExtExecRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/ext/admin': {
-      id: '/api/public/ext/admin'
-      path: '/api/public/ext/admin'
-      fullPath: '/api/public/ext/admin'
-      preLoaderRoute: typeof ApiPublicExtAdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/public/ext/activate': {
       id: '/api/public/ext/activate'
       path: '/api/public/ext/activate'
@@ -178,8 +178,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  AuthRoute: AuthRoute,
   ApiPublicExtActivateRoute: ApiPublicExtActivateRoute,
-  ApiPublicExtAdminRoute: ApiPublicExtAdminRoute,
   ApiPublicExtExecRoute: ApiPublicExtExecRoute,
   ApiPublicExtHeartbeatRoute: ApiPublicExtHeartbeatRoute,
   ApiPublicExtTokenRoute: ApiPublicExtTokenRoute,
