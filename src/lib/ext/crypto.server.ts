@@ -106,5 +106,5 @@ export function randomLicenseKey(): string {
   const b = new Uint8Array(16);
   crypto.getRandomValues(b);
   const seg = (i: number) => Array.from(b.slice(i, i + 4)).map((x) => alph[x % 32]).join("");
-  return `LIF-${seg(0)}-${seg(4)}-${seg(8)}-${seg(12)}`;
+  return `LI-${seg(0)}-${seg(4)}-${seg(8)}-${seg(12)}`;
 }
