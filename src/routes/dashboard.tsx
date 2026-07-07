@@ -104,64 +104,73 @@ function Dashboard() {
 
   const signOut = async () => { await supabase.auth.signOut(); nav({ to: "/auth" }); };
 
-  if (loading) return <div style={styles.loading}>Loading…</div>;
+  if (loading) return <div style={styles.loading}><div style={styles.spinner} /> Loading…</div>;
 
   return (
     <div style={styles.page}>
+      <PageBG />
       <header style={styles.header}>
         <Link to="/" style={styles.logo}><span style={styles.logoMark}/> AI Infinity</Link>
         <div style={styles.headerRight}>
           <span style={styles.email}>{email}</span>
-          <button onClick={signOut} style={styles.linkBtn}>Sign out</button>
+          <button onClick={signOut} style={styles.linkBtn} className="fx-cta">Sign out</button>
         </div>
       </header>
 
       <main style={styles.main}>
         {msg && <div style={styles.alert}>{msg}</div>}
 
-        <section style={styles.section}>
-          <h2 style={styles.h2}>Your free trial</h2>
-          {!trial ? (
-            <div style={styles.card}>
-              <div style={styles.trialTitle}>15 minutes on us</div>
-              <p style={styles.trialSub}>Instant activation. Timer starts the moment you paste the key into the extension — not before.</p>
-              <button onClick={doClaim} disabled={claiming} style={styles.primaryBtn}>
-                {claiming ? "Generating…" : "Claim my 15-min key"}
-              </button>
-            </div>
-          ) : (
-            <LicenseCard lic={trial} now={now} onCopy={copy} copied={copied === trial.key} highlight />
-          )}
-        </section>
-
-        <section style={styles.section}>
-          <h2 style={styles.h2}>Upgrade to a paid plan</h2>
-          <p style={styles.sub}>Same instant delivery. Countdown starts on first activation in the extension.</p>
-          <div style={styles.plansGrid}>
-            {paidPlans.map(p => (
-              <div key={p.code} style={styles.planCard}>
-                <div style={styles.planName}>{p.name}</div>
-                <div style={styles.planPrice}>₹{p.price_inr.toLocaleString("en-IN")}</div>
-                <div style={styles.planMeta}>
-                  <div>{durationLabel(p.duration_seconds)}</div>
-                  <div>{p.max_devices} device{p.max_devices > 1 ? "s" : ""}</div>
-                  <div>{p.monthly_credits.toLocaleString()} credits</div>
-                </div>
-                <button onClick={() => doBuy(p.code)} disabled={buying === p.code} style={styles.buyBtn}>
-                  {buying === p.code ? "Redirecting…" : "Buy now"}
+        <Reveal>
+          <section style={styles.section}>
+            <h2 style={styles.h2}>Your free trial</h2>
+            {!trial ? (
+              <div style={styles.card} className="fx-tilt">
+                <div style={styles.trialTitle}>15 minutes on us</div>
+                <p style={styles.trialSub}>Instant activation. Timer starts the moment you paste the key into the extension — not before.</p>
+                <button onClick={doClaim} disabled={claiming} style={styles.primaryBtn} className="fx-cta fx-cta-primary">
+                  {claiming ? "Generating…" : "Claim my 15-min key →"}
                 </button>
               </div>
-            ))}
-          </div>
-        </section>
+            ) : (
+              <LicenseCard lic={trial} now={now} onCopy={copy} copied={copied === trial.key} highlight />
+            )}
+          </section>
+        </Reveal>
 
-        {paid.length > 0 && (
+        <Reveal delay={80}>
           <section style={styles.section}>
-            <h2 style={styles.h2}>Your licenses</h2>
-            <div style={styles.licList}>
-              {paid.map(l => <LicenseCard key={l.id} lic={l} now={now} onCopy={copy} copied={copied === l.key} />)}
+            <h2 style={styles.h2}>Upgrade to a paid plan</h2>
+            <p style={styles.sub}>Same instant delivery. Countdown starts on first activation in the extension.</p>
+            <div style={styles.plansGrid}>
+              {paidPlans.map((p, i) => (
+                <Reveal key={p.code} delay={i * 60}>
+                  <div style={styles.planCard} className="fx-tilt">
+                    <div style={styles.planName}>{p.name}</div>
+                    <div style={styles.planPrice}><span style={styles.planCurrency}>₹</span>{p.price_inr.toLocaleString("en-IN")}</div>
+                    <div style={styles.planMeta}>
+                      <div>◷ {durationLabel(p.duration_seconds)}</div>
+                      <div>⌘ {p.max_devices} device{p.max_devices > 1 ? "s" : ""}</div>
+                      <div>✦ {p.monthly_credits.toLocaleString()} credits</div>
+                    </div>
+                    <button onClick={() => doBuy(p.code)} disabled={buying === p.code} style={styles.buyBtn} className="fx-cta fx-cta-primary">
+                      {buying === p.code ? "Redirecting…" : "Buy now"}
+                    </button>
+                  </div>
+                </Reveal>
+              ))}
             </div>
           </section>
+        </Reveal>
+
+        {paid.length > 0 && (
+          <Reveal delay={100}>
+            <section style={styles.section}>
+              <h2 style={styles.h2}>Your licenses</h2>
+              <div style={styles.licList}>
+                {paid.map(l => <LicenseCard key={l.id} lic={l} now={now} onCopy={copy} copied={copied === l.key} />)}
+              </div>
+            </section>
+          </Reveal>
         )}
       </main>
     </div>
