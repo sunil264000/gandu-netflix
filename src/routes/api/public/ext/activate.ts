@@ -23,11 +23,33 @@ export const Route = createFileRoute("/api/public/ext/activate")({
         if (!plan) return json({ error: "plan_missing" }, 500);
 
         const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? null;
+
+        // ----- Countdown lock: first activation stamps activated_at + expires_at atomically -----
+        let effective = lic;
+        if (!lic.activated_at && lic.duration_seconds > 0) {
+          const now = new Date();
+          const expires = new Date(now.getTime() + lic.duration_seconds * 1000);
+          const { data: updated } = await supabaseAdmin.from("licenses")
+            .update({ activated_at: now.toISOString(), expires_at: expires.toISOString() })
+            .eq("id", lic.id).is("activated_at", null)
+            .select("*").maybeSingle();
+          if (updated) effective = updated;
+          else {
+            const { data: refreshed } = await supabaseAdmin.from("licenses").select("*").eq("id", lic.id).maybeSingle();
+            if (refreshed) effective = refreshed;
+          }
+        }
+
+        // ----- Expiry check -----
+        if (effective.expires_at && new Date(effective.expires_at).getTime() <= Date.now()) {
+          await supabaseAdmin.from("licenses").update({ status: "revoked" }).eq("id", effective.id).eq("status", "active");
+          return json({ error: "license_expired", expired_at: effective.expires_at }, 403);
+        }
+
         const fpHash = await sha256Hex(fp);
 
-        // Existing device with same fingerprint?
         const { data: existing } = await supabaseAdmin
-          .from("devices").select("*").eq("license_id", lic.id).eq("fingerprint_hash", fpHash).maybeSingle();
+          .from("devices").select("*").eq("license_id", effective.id).eq("fingerprint_hash", fpHash).maybeSingle();
 
         let deviceId: string;
         if (existing) {
@@ -40,26 +62,29 @@ export const Route = createFileRoute("/api/public/ext/activate")({
         } else {
           const { count } = await supabaseAdmin
             .from("devices").select("*", { count: "exact", head: true })
-            .eq("license_id", lic.id).eq("revoked", false);
+            .eq("license_id", effective.id).eq("revoked", false);
           if ((count ?? 0) >= plan.max_devices) {
             return json({ error: "device_limit", max_devices: plan.max_devices }, 403);
           }
           const { data: dev, error: dErr } = await supabaseAdmin.from("devices").insert({
-            license_id: lic.id, fingerprint_hash: fpHash, first_seen_ip: ip, last_seen_ip: ip,
+            license_id: effective.id, fingerprint_hash: fpHash, first_seen_ip: ip, last_seen_ip: ip,
             user_agent: body.ua ?? null, ext_version: body.ext_version ?? null,
           }).select("id").single();
           if (dErr || !dev) return json({ error: "device_create_failed" }, 500);
           deviceId = dev.id;
         }
 
-        // Return derived per-license HMAC secret. Extension stores in chrome.storage.local.
         const secret = await deriveLicenseSecret(licKey);
         return json({
           ok: true,
           device_id: deviceId,
           hmac_secret: secret,
           plan: { code: plan.code, name: plan.name, max_devices: plan.max_devices, features: plan.features },
-          credits_remaining: lic.credits_remaining,
+          credits_remaining: effective.credits_remaining,
+          duration_seconds: effective.duration_seconds,
+          activated_at: effective.activated_at,
+          expires_at: effective.expires_at,
+          is_trial: effective.is_trial,
         });
       },
     },

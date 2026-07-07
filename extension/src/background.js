@@ -141,6 +141,9 @@ async function activate(licenseKey) {
     plan: r.plan,
     credits: r.credits_remaining,
     activated_at: Date.now(),
+    expires_at: r.expires_at ? new Date(r.expires_at).getTime() : null,
+    duration_seconds: r.duration_seconds ?? 0,
+    is_trial: !!r.is_trial,
   });
   await refreshToken();
   return r;
@@ -169,8 +172,9 @@ async function heartbeat() {
     }).then((x) => x.json());
     if (r.status === "revoked") {
       console.warn("License revoked:", r.reason);
+      const wasExpired = r.reason === "license_expired" || r.reason === "revoked";
       await S.clear();
-      await S.set({ revoked: true, revoke_reason: r.reason });
+      await S.set({ revoked: true, revoke_reason: wasExpired ? "expired" : (r.reason ?? "revoked") });
     } else if (r.status === "ok") {
       await S.set({ credits: r.credits_remaining });
     }
@@ -215,6 +219,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           revoke_reason: await S.get("revoke_reason"),
           credits: await S.get("credits"),
           plan: await S.get("plan"),
+          expires_at: await S.get("expires_at"),
+          duration_seconds: await S.get("duration_seconds"),
+          is_trial: await S.get("is_trial"),
         });
       } else if (msg.type === "sign_out") { await S.clear(); sendResponse({ ok: true }); }
       else sendResponse({ error: "unknown" });

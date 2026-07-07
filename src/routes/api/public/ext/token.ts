@@ -20,8 +20,12 @@ export const Route = createFileRoute("/api/public/ext/token")({
 
         const { data: dev } = await supabaseAdmin.from("devices").select("*, licenses(*)").eq("id", deviceId).maybeSingle();
         if (!dev || dev.revoked) return j({ error: "device_invalid" }, 401);
-        const lic = (dev as { licenses: { key: string; status: string; id: string } }).licenses;
+        const lic = (dev as { licenses: { key: string; status: string; id: string; expires_at: string | null } }).licenses;
         if (!lic || lic.status !== "active") return j({ error: "license_invalid" }, 401);
+        if (lic.expires_at && new Date(lic.expires_at).getTime() <= Date.now()) {
+          await supabaseAdmin.from("licenses").update({ status: "revoked" }).eq("id", lic.id).eq("status", "active");
+          return j({ error: "license_expired" }, 403);
+        }
 
         const secret = await deriveLicenseSecret(lic.key);
         const payload = `${ts}.${nonce}.POST./api/public/ext/token.${await sha256Hex(body)}`;

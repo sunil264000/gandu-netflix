@@ -157,41 +157,62 @@ export type Database = {
       }
       licenses: {
         Row: {
+          activated_at: string | null
           created_at: string
           credits_remaining: number
           credits_reset_at: string
+          duration_seconds: number
+          expires_at: string | null
           hmac_secret: string
           id: string
+          is_trial: boolean
           key: string
           notes: string | null
+          order_id: string | null
           plan_code: string
           status: string
+          trial_fp_hash: string | null
+          trial_ip: string | null
           updated_at: string
           user_id: string | null
         }
         Insert: {
+          activated_at?: string | null
           created_at?: string
           credits_remaining?: number
           credits_reset_at?: string
+          duration_seconds?: number
+          expires_at?: string | null
           hmac_secret: string
           id?: string
+          is_trial?: boolean
           key: string
           notes?: string | null
+          order_id?: string | null
           plan_code: string
           status?: string
+          trial_fp_hash?: string | null
+          trial_ip?: string | null
           updated_at?: string
           user_id?: string | null
         }
         Update: {
+          activated_at?: string | null
           created_at?: string
           credits_remaining?: number
           credits_reset_at?: string
+          duration_seconds?: number
+          expires_at?: string | null
           hmac_secret?: string
           id?: string
+          is_trial?: boolean
           key?: string
           notes?: string | null
+          order_id?: string | null
           plan_code?: string
           status?: string
+          trial_fp_hash?: string | null
+          trial_ip?: string | null
           updated_at?: string
           user_id?: string | null
         }
@@ -205,38 +226,104 @@ export type Database = {
           },
         ]
       }
+      orders: {
+        Row: {
+          amount_inr: number
+          created_at: string
+          gateway: string
+          gateway_ref: string | null
+          id: string
+          license_id: string | null
+          paid_at: string | null
+          plan_code: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount_inr: number
+          created_at?: string
+          gateway?: string
+          gateway_ref?: string | null
+          id?: string
+          license_id?: string | null
+          paid_at?: string | null
+          plan_code: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount_inr?: number
+          created_at?: string
+          gateway?: string
+          gateway_ref?: string | null
+          id?: string
+          license_id?: string | null
+          paid_at?: string | null
+          plan_code?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_plan_code_fkey"
+            columns: ["plan_code"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
       plans: {
         Row: {
           code: string
           created_at: string
+          duration_seconds: number
           features: Json
           is_public: boolean
+          is_trial: boolean
           max_devices: number
           monthly_credits: number
           name: string
           price_inr: number
+          sort_order: number
           updated_at: string
         }
         Insert: {
           code: string
           created_at?: string
+          duration_seconds?: number
           features?: Json
           is_public?: boolean
+          is_trial?: boolean
           max_devices?: number
           monthly_credits?: number
           name: string
           price_inr?: number
+          sort_order?: number
           updated_at?: string
         }
         Update: {
           code?: string
           created_at?: string
+          duration_seconds?: number
           features?: Json
           is_public?: boolean
+          is_trial?: boolean
           max_devices?: number
           monthly_credits?: number
           name?: string
           price_inr?: number
+          sort_order?: number
           updated_at?: string
         }
         Relationships: []

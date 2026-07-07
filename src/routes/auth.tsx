@@ -16,7 +16,7 @@ function Auth() {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (data.user) nav({ to: "/admin" });
+      if (data.user) nav({ to: "/dashboard" });
     });
   }, [nav]);
 
@@ -25,7 +25,7 @@ function Auth() {
     const r = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin + "/auth" });
     if (r.error) { setErr(String(r.error.message ?? r.error)); setBusy(false); return; }
     // signInWithOAuth navigates away in full-page flow; if we reach here, session is set
-    nav({ to: "/admin" });
+    nav({ to: "/dashboard" });
   };
 
   const emailSubmit = async (e: React.FormEvent) => {
@@ -35,7 +35,7 @@ function Auth() {
     const { error } = await fn;
     setBusy(false);
     if (error) return setErr(error.message);
-    nav({ to: "/admin" });
+    nav({ to: "/dashboard" });
   };
 
   return (
