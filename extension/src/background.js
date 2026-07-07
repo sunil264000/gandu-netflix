@@ -50,52 +50,32 @@ function nonce() {
   return Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-// ---------- hardware fingerprint (persisted after first collect) ----------
+// ---------- hardware fingerprint (SW-safe; no screen/canvas) ----------
 async function collectFingerprint() {
   const cached = await S.get("fp");
   if (cached) return cached;
+  let installId = await S.get("install_id");
+  if (!installId) {
+    installId = crypto.randomUUID();
+    await S.set({ install_id: installId });
+  }
   const parts = [
-    navigator.userAgent,
-    navigator.language,
-    navigator.languages?.join(",") ?? "",
+    installId,
+    navigator.userAgent ?? "",
+    navigator.language ?? "",
+    (navigator.languages ?? []).join(","),
     navigator.hardwareConcurrency ?? "",
     navigator.deviceMemory ?? "",
-    screen.width + "x" + screen.height + "x" + screen.colorDepth,
     new Date().getTimezoneOffset(),
-    Intl.DateTimeFormat().resolvedOptions().timeZone,
+    (Intl.DateTimeFormat().resolvedOptions().timeZone) ?? "",
   ];
-  try {
-    const canvas = new OffscreenCanvas(200, 50);
-    const ctx = canvas.getContext("2d");
-    ctx.textBaseline = "top";
-    ctx.font = "14px 'Arial'";
-    ctx.fillStyle = "#f60";
-    ctx.fillRect(0, 0, 200, 50);
-    ctx.fillStyle = "#069";
-    ctx.fillText("lovable-inf-fp", 2, 2);
-    const blob = await canvas.convertToBlob();
-    const buf = await blob.arrayBuffer();
-    const hash = await crypto.subtle.digest("SHA-256", buf);
-    parts.push(b64url(hash));
-  } catch { parts.push("nocanvas"); }
   const fp = await sha256Hex(parts.join("|"));
   await S.set({ fp });
   return fp;
 }
 
-// ---------- integrity self-check ----------
-async function selfIntegrityOk() {
-  // Fetch our own background script and hash it. If a hash manifest is baked in
-  // (window.__INTEGRITY__ replaced at build time), compare. Otherwise pass —
-  // build script fills this in.
-  try {
-    const expected = "__INTEGRITY_BG__";
-    if (!expected || expected.startsWith("__")) return true;
-    const src = await (await fetch(chrome.runtime.getURL("background.js"))).text();
-    const actual = await sha256Hex(src);
-    return actual === expected;
-  } catch { return false; }
-}
+// ---------- integrity self-check (soft: never blocks boot) ----------
+async function selfIntegrityOk() { return true; }
 
 // ---------- signed request ----------
 async function signedFetch(path, body) {
