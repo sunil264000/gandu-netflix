@@ -41,6 +41,10 @@ export const Route = createFileRoute("/api/public/ext/exec")({
 
         const { data: lic } = await supabaseAdmin.from("licenses").select("*").eq("id", claims.lic).maybeSingle();
         if (!lic || lic.status !== "active") return j({ error: "license_invalid" }, 401);
+        if (lic.expires_at && new Date(lic.expires_at).getTime() <= Date.now()) {
+          await supabaseAdmin.from("licenses").update({ status: "revoked" }).eq("id", lic.id).eq("status", "active");
+          return j({ error: "license_expired" }, 403);
+        }
 
         const secret = await deriveLicenseSecret(lic.key);
         const payload = `${ts}.${nonce}.POST./api/public/ext/exec.${await sha256Hex(bodyText)}`;
