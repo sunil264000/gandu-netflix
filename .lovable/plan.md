@@ -1,76 +1,74 @@
+# Lovable Infinity — Automated License Flow
 
-# Hardened "Lovable Infinity" Extension — Build Plan
+## User journey
 
-Goal: rebuild the extension so **the client is worthless without the server**. All features route through signed, device-bound API calls. Credit deduction happens server-side; a killed license stops working within seconds.
+1. Visit landing → **Sign up / Sign in** (Google + Email)
+2. Instant **15-min trial license** appears on dashboard (one-click copy)
+3. Paste key into extension → **countdown starts on first activation**, key auto-expires
+4. When trial ends → dashboard shows **Buy a plan** with pricing
+5. User picks a plan → checkout (stubbed until gateway is chosen) → **new key generated**, shown with copy button
+6. Paste → countdown starts on activation → auto-expires when duration hits zero
 
-## 1. Backend (this Lovable project)
+## Plans (INR, proportionally scaled from ₹150/day → ₹20,000/year)
 
-New tables (Lovable Cloud, RLS on):
+| Plan       | Duration     | Price     | Effective/day |
+| ---------- | ------------ | --------- | ------------- |
+| Day Pass   | 1 day        | ₹150      | ₹150          |
+| Weekly     | 7 days       | ₹899      | ₹128          |
+| Monthly    | 30 days      | ₹2,999    | ₹100          |
+| Quarterly  | 90 days      | ₹7,499    | ₹83           |
+| Half-year  | 180 days     | ₹12,999   | ₹72           |
+| Yearly     | 365 days     | ₹20,000   | ₹55           |
 
-- `plans` — `code`, `name`, `max_devices`, `monthly_credits`, `price_inr`, `features jsonb`
-- `licenses` — `key` (unique), `user_id`, `plan_code`, `status` (`active|paused|revoked`), `credits_remaining`, `credits_reset_at`, `hmac_secret` (per-license random), `notes`
-- `devices` — `license_id`, `fingerprint_hash`, `first_seen_ip`, `last_seen_ip`, `user_agent`, `ext_version`, `revoked`
-- `sessions` — short-lived JWT tracking: `license_id`, `device_id`, `jti`, `expires_at`, `revoked`
-- `usage_events` — `license_id`, `device_id`, `action`, `credits_spent`, `ip`, `ua`, `meta jsonb`, `created_at`
-- `kill_switch` — `license_id`, `reason`, `created_at` (revoke propagates via heartbeat)
-- `anomaly_flags` — auto-populated (rate spikes, IP jumps, geo hops)
-- `user_roles` + `has_role()` (admin gate for dashboard admin actions)
+No lifetime plan. Prices editable later from admin.
 
-Endpoints (TanStack server routes under `src/routes/api/public/ext/*`, HMAC-verified):
+## Anti-abuse (Maximum)
 
-- `POST /api/public/ext/activate` — license key + fingerprint → binds device (respects `plan.max_devices`), returns `device_id` + `hmac_secret_wrapped`
-- `POST /api/public/ext/token` — device_id + HMAC → 5-min JWT bound to `{license, device, ua, ext_version}`
-- `POST /api/public/ext/exec` — the ONE endpoint every feature calls. Validates JWT + HMAC + nonce/timestamp (replay window 60s), checks credits, decrements atomically, logs `usage_events`, returns result
-- `POST /api/public/ext/heartbeat` — every 60s: checks kill_switch + anomaly flags, returns `{status, credits_remaining}`. Extension self-disables on `revoked`
-- `POST /api/public/ext/pro-module` — streams obfuscated PRO feature JS per-request (server-rendered feature code — no license = no code)
+Trial is issued once per: **account + device fingerprint + IP**. Repeat attempts return the existing trial (or "trial exhausted" if it already expired). Fingerprint = the Canvas + WebGL + OS hash the extension already sends. IP is captured server-side from the trial-issue request.
 
-## 2. Hardened extension client
+## Countdown model
 
-Layers stacked:
+- Key row stores `duration_seconds` + nullable `activated_at`.
+- **First** `/api/public/ext/activate` from the extension sets `activated_at = now()` atomically. Subsequent activations return the same `expires_at = activated_at + duration_seconds`.
+- Server refuses `/exec` and `/token` calls after `expires_at`. Extension shows a live countdown from `expires_at` in the popup and disables features at 0.
+- Kill-switch, revocation, and heartbeat rules already in place still apply.
 
-1. **Hardware fingerprint** (WebGL renderer + audio ctx + canvas + timezone + screen + fonts hash) → SHA-256, sent on activate
-2. **WASM signing core** (`signer.wasm`, ~4KB Rust) — holds derived key, exposes only `sign(payload) → hmac`. Reverse-engineering WASM is hours, not minutes
-3. **Every request** signed: `HMAC(secret, timestamp + nonce + method + path + body_hash)`, plus `X-Ext-Version`, `X-Device-Id`, `X-JWT`
-4. **Short-lived JWT** — 5 min, auto-refresh via `/token`. Stolen JWT dies fast, and it's bound to fingerprint+UA
-5. **Self-integrity check** on load — SHA-256 of `background.js` + `content.js` compared to hash baked into WASM. Tampered files → refuse to boot
-6. **Heavy obfuscation** — `javascript-obfuscator` with control-flow flattening, string array encoding, dead-code injection, self-defending, debug protection on `background.js`, `content.js`, and the signing shim
-7. **Server-streamed PRO logic** — PRO features fetched per-call from `/pro-module`, executed via `Function()` inside sandboxed iframe. Cracker with no valid license literally cannot obtain the code
-8. **Heartbeat kill switch** — 60s poll. Server response `{revoked:true}` → wipes chrome.storage, unregisters listeners, shows "License revoked" screen
-9. **Anomaly detection** (server-side) — >N req/min, >3 distinct IPs/hour, geo hop >1000km/10min → auto-flag → admin one-click revoke from dashboard
+## What I'll build this turn
 
-## 3. What survives cracking (honest boundaries)
+### Backend (Lovable Cloud)
+- Migration: add `plans` seed rows above; add `duration_seconds`, `activated_at`, `is_trial`, `trial_fingerprint`, `trial_ip` to `licenses`; add `orders` table (pending / paid / failed) linked to a plan and future gateway.
+- Server fns (`createServerFn`, all `requireSupabaseAuth`):
+  - `claimTrial()` — checks account+fp+ip, issues single 15-min trial, returns key
+  - `listMyLicenses()` — dashboard listing with live status (trial / active / expired)
+  - `listPlans()` — plans for the pricing grid
+  - `createOrder({ planId })` — creates a pending order, returns a checkout URL (currently a stub route)
+  - `getOrderStatus({ orderId })` — polls for "paid"
+- Public route `/api/public/ext/activate` extended to set `activated_at` on first call (atomic via SQL `UPDATE ... WHERE activated_at IS NULL`).
+- Stub checkout route `/checkout/$orderId` that immediately marks the order paid + generates the license (so end-to-end flow works today; swap for real gateway later).
 
-- Static tampering: blocked by self-integrity + WASM signing
-- Removing license check: pointless — server won't return output without valid signed request
-- Copying license to another PC: fingerprint mismatch → activate rejected (or bumps device count past plan limit)
-- MITM proxy on attacker's own device: possible, but only works for that one device, and kill switch neutralizes on demand
-- This is the realistic ceiling for browser-extension DRM. Above this is diminishing returns.
+### Frontend
+- `/` landing — hero, features, pricing preview, CTA to sign up
+- `/auth` — already exists; keep
+- `/dashboard` (under `_authenticated/`):
+  - "Your Trial" card with the key, copy button, live countdown, status pill
+  - "My Licenses" table (all past + active keys with countdowns)
+  - "Upgrade" grid — 6 plans with Buy button
+- `/checkout/$orderId` — stub gateway page with "Confirm payment" button
+- `/success/$orderId` — shows generated key with big copy button + install-extension steps
+- `/admin` — add plan editor (price + duration), order log
 
-## 4. Dashboard (bare minimum, this turn)
+### Extension
+- Popup shows a live MM:SS countdown fed by the server's `expires_at`
+- On paste-activate: single `/activate` call locks the timer server-side
+- At expiry: features disabled, "Buy a plan" deep link to your site
 
-Admin-only routes:
-- `/admin/licenses` — list, create, revoke, adjust credits, view devices, view usage chart
-- `/admin/plans` — CRUD plans + `max_devices`
-- Public `/activate` page shows license key + install instructions
+### Payments
+- Stubbed for now (you said "will tell later"). Order marked paid instantly on the stub `/checkout` page → key generated the same way real gateway will do via webhook. When you name the gateway (Stripe / Razorpay / Paddle), I'll swap the stub for the real webhook + hosted checkout with no changes to the rest of the flow.
 
-Full user-facing dashboard (sign-in, plans, payment history, self-serve) = next phase after extension is proven working.
+## Out of scope this turn
 
-## 5. Deliverables this build
+- Real payment webhook (waiting on gateway choice)
+- Email receipts (add after gateway)
+- Coupon codes / referrals (say the word)
 
-- Migrations (7 tables + policies + grants + `has_role`)
-- 5 server routes under `src/routes/api/public/ext/*`
-- Extension source in `extension/` — manifest v3, background service worker, content script, popup, sidepanel with Cloud White UI carried over
-- `signer.wasm` (prebuilt, checked in) + JS glue
-- `build-extension.mjs` — runs javascript-obfuscator, computes integrity hashes, injects into WASM, zips output to `public/Lovable-Infinity-Hardened.zip`
-- Admin dashboard pages (licenses, plans)
-- README with install steps
-
-## 6. Order of operations
-
-1. Migrations (approval gate — this comes first)
-2. Server routes + HMAC/JWT helpers
-3. Extension source + WASM signer + obfuscation build script
-4. Admin dashboard
-5. Package + upload to `archives` bucket, provide download
-
-Approve and I start with the migration.
+Approve and I'll ship it.
