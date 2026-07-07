@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   listPublicPlans, claimTrial, listMyLicenses, createOrder,
 } from "@/lib/ext/user.functions";
+import { PageBG, Reveal } from "@/components/PageFX";
 
 export const Route = createFileRoute("/dashboard")({ component: Dashboard, ssr: false });
 
