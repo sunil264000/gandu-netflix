@@ -98,7 +98,7 @@ function AdminPage() {
     <div style={wrap}>
       <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
-          <h1 style={h1}>Lovable Infinity — Owner</h1>
+          <h1 style={h1}>AI Infinity — Owner</h1>
           <div style={{ fontSize: 12, color: "#64748b" }}>{userEmail}</div>
         </div>
         <button style={{ ...btn, width: "auto", background: "#fff", color: "#0f172a", border: "1px solid #e5e7eb" }} onClick={signOut}>Sign out</button>

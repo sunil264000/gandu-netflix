@@ -1,5 +1,5 @@
 // ============================================================
-// Lovable Infinity — popup UI
+// AI Infinity — popup UI
 // Defensive: always renders something, even if background SW
 // is cold, crashed, or returns nothing.
 // ============================================================
@@ -63,7 +63,7 @@ function header() {
   return `<div class="hd">
     <img class="logo" src="icon.png" alt="" />
     <div>
-      <h1>Lovable Infinity</h1>
+      <h1>AI Infinity</h1>
       <div class="sub">v2.0.0 · Hardened</div>
     </div>
   </div>`;

@@ -1,5 +1,5 @@
 // ============================================================
-// Lovable Infinity — hardened client core
+// AI Infinity — hardened client core
 // ------------------------------------------------------------
 // Every network call:
 //   1) collects a hardware fingerprint (cached)

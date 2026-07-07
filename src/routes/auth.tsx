@@ -44,7 +44,7 @@ function Auth() {
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,#3b82f6,#6366f1)" }} />
           <div>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Lovable Infinity</h1>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>AI Infinity</h1>
             <div style={{ fontSize: 12, color: "#64748b" }}>Owner console</div>
           </div>
         </div>

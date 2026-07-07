@@ -56,7 +56,7 @@ function Success() {
         </div>
 
         <div style={s.actions}>
-          <a href="/Lovable-Infinity-Hardened.zip" download style={s.dlBtn}>Download extension</a>
+          <a href="/AI-Infinity-Hardened.zip" download style={s.dlBtn}>Download extension</a>
           <Link to="/dashboard" style={s.dashBtn}>Go to dashboard</Link>
         </div>
       </div>

@@ -17,7 +17,7 @@ async function fingerprint(): Promise<string> {
   try {
     const c = document.createElement("canvas"); c.width = 220; c.height = 40;
     const ctx = c.getContext("2d");
-    if (ctx) { ctx.textBaseline = "top"; ctx.font = "14px 'Arial'"; ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 220, 40); ctx.fillStyle = "#069"; ctx.fillText("Lovable-Infinity", 2, 2); parts.push(c.toDataURL()); }
+    if (ctx) { ctx.textBaseline = "top"; ctx.font = "14px 'Arial'"; ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 220, 40); ctx.fillStyle = "#069"; ctx.fillText("AI-Infinity", 2, 2); parts.push(c.toDataURL()); }
   } catch { /* ignore */ }
   const buf = new TextEncoder().encode(parts.join("|"));
   const hash = await crypto.subtle.digest("SHA-256", buf);
@@ -108,7 +108,7 @@ function Dashboard() {
   return (
     <div style={styles.page}>
       <header style={styles.header}>
-        <Link to="/" style={styles.logo}><span style={styles.logoMark}/> Lovable Infinity</Link>
+        <Link to="/" style={styles.logo}><span style={styles.logoMark}/> AI Infinity</Link>
         <div style={styles.headerRight}>
           <span style={styles.email}>{email}</span>
           <button onClick={signOut} style={styles.linkBtn}>Sign out</button>
