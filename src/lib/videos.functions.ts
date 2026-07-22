@@ -230,23 +230,9 @@ export const updateVideo = createServerFn({ method: "POST" })
 
 export const deleteVideo = createServerFn({ method: "POST" })
   .inputValidator((i: { id: string }) => z.object({ id: z.string().uuid() }).parse(i))
-  .handler(async ({ data }) => {
-    const sb = await admin();
-    const { data: v } = await sb.from("videos").select("storage_path, thumbnail_path, upload_mode, chunk_count").eq("id", data.id).maybeSingle();
-    if (v?.storage_path) {
-      if (v.upload_mode === "chunked" && v.chunk_count) {
-        const paths = Array.from({ length: v.chunk_count }, (_, index) => `${v.storage_path}.part-${String(index).padStart(6, "0")}`);
-        for (let i = 0; i < paths.length; i += 100) {
-          await sb.storage.from("videos").remove(paths.slice(i, i + 100));
-        }
-      } else {
-        await sb.storage.from("videos").remove([v.storage_path]);
-      }
-    }
-    if (v?.thumbnail_path) await sb.storage.from("thumbnails").remove([v.thumbnail_path]);
-    const { error } = await sb.from("videos").delete().eq("id", data.id);
-    if (error) throw error;
-    return { ok: true };
+  .handler(async () => {
+    // Deletion disabled — videos are preserved in the database and storage.
+    return { ok: true, skipped: true };
   });
 
 export const createCategory = createServerFn({ method: "POST" })
