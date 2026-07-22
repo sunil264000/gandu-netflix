@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WatchIdRouteImport } from './routes/watch.$id'
+import { Route as ApiPublicVideosStreamRouteImport } from './routes/api/public/videos/stream'
 import { Route as ApiPublicExtTokenRouteImport } from './routes/api/public/ext/token'
 import { Route as ApiPublicExtHeartbeatRouteImport } from './routes/api/public/ext/heartbeat'
 import { Route as ApiPublicExtExecRouteImport } from './routes/api/public/ext/exec'
@@ -50,6 +51,11 @@ const WatchIdRoute = WatchIdRouteImport.update({
   path: '/watch/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicVideosStreamRoute = ApiPublicVideosStreamRouteImport.update({
+  id: '/api/public/videos/stream',
+  path: '/api/public/videos/stream',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicExtTokenRoute = ApiPublicExtTokenRouteImport.update({
   id: '/api/public/ext/token',
   path: '/api/public/ext/token',
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
   '/api/public/ext/token': typeof ApiPublicExtTokenRoute
+  '/api/public/videos/stream': typeof ApiPublicVideosStreamRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
   '/api/public/ext/token': typeof ApiPublicExtTokenRoute
+  '/api/public/videos/stream': typeof ApiPublicVideosStreamRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
   '/api/public/ext/token': typeof ApiPublicExtTokenRoute
+  '/api/public/videos/stream': typeof ApiPublicVideosStreamRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
     | '/api/public/ext/token'
+    | '/api/public/videos/stream'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,6 +143,7 @@ export interface FileRouteTypes {
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
     | '/api/public/ext/token'
+    | '/api/public/videos/stream'
   id:
     | '__root__'
     | '/'
@@ -145,6 +156,7 @@ export interface FileRouteTypes {
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
     | '/api/public/ext/token'
+    | '/api/public/videos/stream'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,6 +170,7 @@ export interface RootRouteChildren {
   ApiPublicExtExecRoute: typeof ApiPublicExtExecRoute
   ApiPublicExtHeartbeatRoute: typeof ApiPublicExtHeartbeatRoute
   ApiPublicExtTokenRoute: typeof ApiPublicExtTokenRoute
+  ApiPublicVideosStreamRoute: typeof ApiPublicVideosStreamRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -204,6 +217,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WatchIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/videos/stream': {
+      id: '/api/public/videos/stream'
+      path: '/api/public/videos/stream'
+      fullPath: '/api/public/videos/stream'
+      preLoaderRoute: typeof ApiPublicVideosStreamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/ext/token': {
       id: '/api/public/ext/token'
       path: '/api/public/ext/token'
@@ -246,6 +266,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicExtExecRoute: ApiPublicExtExecRoute,
   ApiPublicExtHeartbeatRoute: ApiPublicExtHeartbeatRoute,
   ApiPublicExtTokenRoute: ApiPublicExtTokenRoute,
+  ApiPublicVideosStreamRoute: ApiPublicVideosStreamRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

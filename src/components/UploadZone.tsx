@@ -3,9 +3,12 @@ import { useServerFn } from "@tanstack/react-start";
 import * as tus from "tus-js-client";
 import { Upload, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { createVideoRecord } from "@/lib/videos.functions";
+import { supabase } from "@/integrations/supabase/client";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+const DIRECT_UPLOAD_LIMIT = 42 * 1024 * 1024;
+const VIDEO_CHUNK_SIZE = 32 * 1024 * 1024;
 
 function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?: (pct: number) => void) {
   return new Promise<void>((resolve, reject) => {
@@ -30,6 +33,32 @@ function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?:
     });
     upload.start();
   });
+}
+
+async function uploadObject(bucket: "videos" | "thumbnails", path: string, blob: Blob, contentType?: string) {
+  const { error } = await supabase.storage.from(bucket).upload(path, blob, {
+    upsert: true,
+    contentType: contentType || blob.type || "application/octet-stream",
+    cacheControl: "3600",
+  });
+  if (error) throw error;
+}
+
+async function uploadChunkedVideo(file: File, basePath: string, onProgress?: (pct: number) => void) {
+  const chunkCount = Math.ceil(file.size / VIDEO_CHUNK_SIZE);
+  let uploaded = 0;
+
+  for (let index = 0; index < chunkCount; index += 1) {
+    const start = index * VIDEO_CHUNK_SIZE;
+    const end = Math.min(file.size, start + VIDEO_CHUNK_SIZE);
+    const partPath = `${basePath}.part-${String(index).padStart(6, "0")}`;
+    const chunk = file.slice(start, end, file.type || "application/octet-stream");
+    await uploadObject("videos", partPath, chunk, file.type || "application/octet-stream");
+    uploaded += chunk.size;
+    onProgress?.((uploaded / file.size) * 100);
+  }
+
+  return { chunkCount, chunkSizeBytes: VIDEO_CHUNK_SIZE };
 }
 
 type Job = {
@@ -97,7 +126,18 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
       updateJob(job.id, { status: "uploading", message: "Uploading...", progress: 0 });
 
-      await tusUpload("videos", storagePath, file, (pct) => updateJob(job.id, { progress: pct }));
+      let uploadMode: "single" | "chunked" = "single";
+      let chunkCount: number | undefined;
+      let chunkSizeBytes: number | undefined;
+
+      if (file.size > DIRECT_UPLOAD_LIMIT) {
+        uploadMode = "chunked";
+        const chunkMeta = await uploadChunkedVideo(file, storagePath, (pct) => updateJob(job.id, { progress: pct }));
+        chunkCount = chunkMeta.chunkCount;
+        chunkSizeBytes = chunkMeta.chunkSizeBytes;
+      } else {
+        await tusUpload("videos", storagePath, file, (pct) => updateJob(job.id, { progress: pct }));
+      }
 
       updateJob(job.id, { status: "saving", message: "Finalizing...", progress: 100 });
 
@@ -106,7 +146,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         title, storagePath, thumbnailPath, sizeBytes: file.size, mimeType: file.type || undefined,
         extension: ext || undefined, durationSec: meta.duration || undefined,
         width: meta.width || undefined, height: meta.height || undefined,
-        categoryId: categoryId,
+        categoryId: categoryId, uploadMode, chunkCount, chunkSizeBytes,
       }});
 
       updateJob(job.id, { status: "done", message: "Uploaded" });
@@ -138,7 +178,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       >
         <Upload className="w-10 h-10 mx-auto text-white/40 mb-3" />
         <p className="text-white font-medium">Drop videos here or click to browse</p>
-        <p className="mt-1 text-xs text-white/50">MP4, WebM, MOV, MKV — up to 50 GB each</p>
+        <p className="mt-1 text-xs text-white/50">MP4, WebM, MOV, MKV — large files upload in safe chunks</p>
         <input ref={inputRef} type="file" multiple accept="video/*,.mkv,.avi" hidden onChange={(e) => addFiles(e.target.files)} />
       </div>
 

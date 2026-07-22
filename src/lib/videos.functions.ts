@@ -16,6 +16,9 @@ export type VideoRow = {
   height: number | null;
   category_id: string | null;
   view_count: number;
+  upload_mode: "single" | "chunked";
+  chunk_size_bytes: number | null;
+  chunk_count: number | null;
   created_at: string;
 };
 
@@ -78,7 +81,9 @@ export const getVideo = createServerFn({ method: "GET" })
     const { data: v, error } = await sb.from("videos").select("*").eq("id", data.id).maybeSingle();
     if (error) throw error;
     if (!v) throw new Error("not_found");
-    const streamUrl = await signPath(sb, "videos", v.storage_path);
+    const streamUrl = v.upload_mode === "chunked"
+      ? `/api/public/videos/stream?id=${encodeURIComponent(v.id)}`
+      : await signPath(sb, "videos", v.storage_path);
     const thumbnailUrl = await signPath(sb, "thumbnails", v.thumbnail_path);
     const { data: progress } = await sb.from("watch_history")
       .select("position_sec, completed").eq("user_id", ANON_USER).eq("video_id", data.id).maybeSingle();
@@ -171,6 +176,7 @@ export const createVideoRecord = createServerFn({ method: "POST" })
     title: string; description?: string; storagePath: string; thumbnailPath?: string;
     sizeBytes: number; mimeType?: string; extension?: string; durationSec?: number;
     width?: number; height?: number; categoryId?: string | null;
+    uploadMode?: "single" | "chunked"; chunkSizeBytes?: number; chunkCount?: number;
   }) => z.object({
     title: z.string().min(1).max(300),
     description: z.string().max(2000).optional(),
@@ -183,6 +189,9 @@ export const createVideoRecord = createServerFn({ method: "POST" })
     width: z.number().int().optional(),
     height: z.number().int().optional(),
     categoryId: z.string().uuid().nullable().optional(),
+    uploadMode: z.enum(["single", "chunked"]).default("single"),
+    chunkSizeBytes: z.number().int().positive().optional(),
+    chunkCount: z.number().int().positive().optional(),
   }).parse(i))
   .handler(async ({ data }) => {
     const sb = await admin();
@@ -192,6 +201,9 @@ export const createVideoRecord = createServerFn({ method: "POST" })
       size_bytes: data.sizeBytes, mime_type: data.mimeType ?? null, extension: data.extension ?? null,
       duration_sec: data.durationSec ?? null, width: data.width ?? null, height: data.height ?? null,
       category_id: data.categoryId ?? null, uploaded_by: ANON_USER,
+      upload_mode: data.uploadMode,
+      chunk_size_bytes: data.uploadMode === "chunked" ? data.chunkSizeBytes ?? null : null,
+      chunk_count: data.uploadMode === "chunked" ? data.chunkCount ?? null : null,
     }).select("id").single();
     if (error) throw error;
     return { id: row.id };
@@ -220,8 +232,17 @@ export const deleteVideo = createServerFn({ method: "POST" })
   .inputValidator((i: { id: string }) => z.object({ id: z.string().uuid() }).parse(i))
   .handler(async ({ data }) => {
     const sb = await admin();
-    const { data: v } = await sb.from("videos").select("storage_path, thumbnail_path").eq("id", data.id).maybeSingle();
-    if (v?.storage_path) await sb.storage.from("videos").remove([v.storage_path]);
+    const { data: v } = await sb.from("videos").select("storage_path, thumbnail_path, upload_mode, chunk_count").eq("id", data.id).maybeSingle();
+    if (v?.storage_path) {
+      if (v.upload_mode === "chunked" && v.chunk_count) {
+        const paths = Array.from({ length: v.chunk_count }, (_, index) => `${v.storage_path}.part-${String(index).padStart(6, "0")}`);
+        for (let i = 0; i < paths.length; i += 100) {
+          await sb.storage.from("videos").remove(paths.slice(i, i + 100));
+        }
+      } else {
+        await sb.storage.from("videos").remove([v.storage_path]);
+      }
+    }
     if (v?.thumbnail_path) await sb.storage.from("thumbnails").remove([v.thumbnail_path]);
     const { error } = await sb.from("videos").delete().eq("id", data.id);
     if (error) throw error;
