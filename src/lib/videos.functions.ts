@@ -163,9 +163,13 @@ export const bumpView = createServerFn({ method: "POST" })
   .inputValidator((i: { videoId: string }) => z.object({ videoId: z.string().uuid() }).parse(i))
   .handler(async ({ data }) => {
     const sb = await admin();
-    const { data: cur } = await sb.from("videos").select("view_count").eq("id", data.videoId).maybeSingle();
-    const next = (cur?.view_count ?? 0) + 1;
-    await sb.from("videos").update({ view_count: next }).eq("id", data.videoId);
+    const { error } = await (sb.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: unknown }>)("increment_video_view_admin", { _video_id: data.videoId });
+    if (error) {
+      // Fallback to non-atomic increment if the RPC isn't deployed yet.
+      const { data: cur } = await sb.from("videos").select("view_count").eq("id", data.videoId).maybeSingle();
+      const next = (cur?.view_count ?? 0) + 1;
+      await sb.from("videos").update({ view_count: next }).eq("id", data.videoId);
+    }
     return { ok: true };
   });
 

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { log, newRequestId, errShape } from "@/lib/server-log";
 
 // Tuned for slow connections (~10 Mbps): small responses so playback starts
 // almost immediately and the browser can seek without over-fetching.
@@ -6,6 +7,8 @@ const MAX_RESPONSE_BYTES = 4 * 1024 * 1024; // 4 MB per range response
 const PARALLEL_FETCHES = 3;
 const SIGNED_URL_TTL = 60 * 60 * 6;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
+const CHUNK_FETCH_RETRIES = 3;
+const CHUNK_FETCH_TIMEOUT_MS = 20_000;
 
 type StreamVideo = {
   id: string;
@@ -17,30 +20,48 @@ type StreamVideo = {
   chunk_count: number | null;
 };
 
-// In-memory caches (per worker isolate) — dramatically cuts DB + signing round-trips
+// In-memory caches (per worker isolate)
 const videoCache = new Map<string, { v: StreamVideo; exp: number }>();
 const urlCache = new Map<string, { url: string; exp: number }>();
 const VIDEO_CACHE_MS = 60_000;
+
+const BASE_HEADERS = {
+  "accept-ranges": "bytes",
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, HEAD, OPTIONS",
+  "access-control-allow-headers": "range",
+  "access-control-expose-headers": "content-range, content-length, accept-ranges, x-request-id",
+  "x-content-type-options": "nosniff",
+};
 
 export const Route = createFileRoute("/api/public/videos/stream")({
   server: {
     handlers: {
       GET: async ({ request }) => handleStream(request),
       HEAD: async ({ request }) => handleStream(request, true),
+      OPTIONS: async () => new Response(null, { status: 204, headers: BASE_HEADERS }),
     },
   },
 });
+
+function errorResponse(status: number, message: string, reqId: string) {
+  return new Response(message, {
+    status,
+    headers: { ...BASE_HEADERS, "content-type": "text/plain; charset=utf-8", "x-request-id": reqId },
+  });
+}
 
 async function getVideo(id: string): Promise<StreamVideo | null> {
   const now = Date.now();
   const hit = videoCache.get(id);
   if (hit && hit.exp > now) return hit.v;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("videos")
     .select("id,storage_path,mime_type,size_bytes,upload_mode,chunk_size_bytes,chunk_count")
     .eq("id", id)
     .maybeSingle();
+  if (error) throw new Error(`db_lookup_failed: ${error.message}`);
   if (!data) return null;
   videoCache.set(id, { v: data as StreamVideo, exp: now + VIDEO_CACHE_MS });
   return data as StreamVideo;
@@ -51,105 +72,145 @@ async function getSignedUrl(path: string): Promise<string | null> {
   const hit = urlCache.get(path);
   if (hit && hit.exp > now) return hit.url;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin.storage.from("videos").createSignedUrl(path, SIGNED_URL_TTL);
-  if (!data?.signedUrl) return null;
+  const { data, error } = await supabaseAdmin.storage.from("videos").createSignedUrl(path, SIGNED_URL_TTL);
+  if (error || !data?.signedUrl) return null;
   urlCache.set(path, { url: data.signedUrl, exp: now + SIGNED_URL_CACHE_MS });
   return data.signedUrl;
 }
 
-async function handleStream(request: Request, headOnly = false) {
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function handleStream(request: Request, headOnly = false): Promise<Response> {
+  const reqId = newRequestId();
+  const started = Date.now();
   const id = new URL(request.url).searchParams.get("id") ?? "";
-  if (!isUuid(id)) return new Response("Bad video id", { status: 400 });
+  if (!isUuid(id)) return errorResponse(400, "Bad video id", reqId);
 
-  const video = await getVideo(id);
-  if (!video) return new Response("Video not found", { status: 404 });
+  try {
+    const video = await getVideo(id);
+    if (!video) return errorResponse(404, "Video not found", reqId);
 
-  if (video.upload_mode !== "chunked") {
-    const signed = await getSignedUrl(video.storage_path);
-    return signed ? Response.redirect(signed, 302) : new Response("Stream URL failed", { status: 500 });
-  }
-
-  const total = Number(video.size_bytes);
-  const chunkSize = Number(video.chunk_size_bytes ?? 0);
-  const chunkCount = Number(video.chunk_count ?? 0);
-  if (!total || !chunkSize || !chunkCount) return new Response("Chunk metadata missing", { status: 500 });
-
-  const range = parseRange(request.headers.get("range"), total);
-  if (!range) {
-    return new Response("Invalid range", {
-      status: 416,
-      headers: { "content-range": `bytes */${total}`, "accept-ranges": "bytes" },
-    });
-  }
-
-  if (range.end - range.start + 1 > MAX_RESPONSE_BYTES) {
-    range.end = Math.min(range.start + MAX_RESPONSE_BYTES - 1, total - 1);
-  }
-
-  const contentLength = range.end - range.start + 1;
-  const headers = new Headers({
-    "accept-ranges": "bytes",
-    "content-type": video.mime_type || "application/octet-stream",
-    "content-length": String(contentLength),
-    "cache-control": "public, max-age=31536000, immutable",
-    "content-range": `bytes ${range.start}-${range.end}/${total}`,
-  });
-  if (headOnly) return new Response(null, { status: 206, headers });
-
-  const firstPart = Math.floor(range.start / chunkSize);
-  const lastPart = Math.floor(range.end / chunkSize);
-  const partIndices: number[] = [];
-  for (let p = firstPart; p <= lastPart; p += 1) partIndices.push(p);
-
-  // Fetch only the exact bytes needed from each chunk using HTTP Range against signed URLs.
-  // This avoids downloading whole 40MB chunks just to slice a few KB out.
-  const fetchPartRange = async (part: number): Promise<Uint8Array> => {
-    const partPath = `${video.storage_path}.part-${String(part).padStart(6, "0")}`;
-    const signed = await getSignedUrl(partPath);
-    if (!signed) throw new Error(`sign failed for part ${part}`);
-
-    const partStartByte = part * chunkSize;
-    const sliceStart = Math.max(0, range.start - partStartByte);
-    // For inner parts we always take the whole chunk; only first/last are trimmed
-    const partEndByte = partStartByte + chunkSize - 1;
-    const sliceEndAbs = Math.min(partEndByte, range.end);
-    const sliceEnd = sliceEndAbs - partStartByte;
-
-    const res = await fetch(signed, {
-      headers: { range: `bytes=${sliceStart}-${sliceEnd}` },
-    });
-    if (!res.ok && res.status !== 206 && res.status !== 200) {
-      throw new Error(`chunk ${part} fetch ${res.status}`);
-    }
-    const buf = await res.arrayBuffer();
-    return new Uint8Array(buf);
-  };
-
-  const body = new ReadableStream({
-    async start(controller) {
-      try {
-        const pending = new Map<number, Promise<Uint8Array>>();
-        const kick = (idx: number) => {
-          if (idx >= partIndices.length) return;
-          pending.set(partIndices[idx], fetchPartRange(partIndices[idx]));
-        };
-        for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) kick(i);
-
-        for (let i = 0; i < partIndices.length; i += 1) {
-          const part = partIndices[i];
-          const bytes = await pending.get(part)!;
-          pending.delete(part);
-          kick(i + PARALLEL_FETCHES);
-          controller.enqueue(bytes);
-        }
-        controller.close();
-      } catch (streamError) {
-        controller.error(streamError);
+    if (video.upload_mode !== "chunked") {
+      const signed = await getSignedUrl(video.storage_path);
+      if (!signed) {
+        log("error", "stream.sign_failed", { reqId, id });
+        return errorResponse(502, "Stream URL unavailable", reqId);
       }
-    },
-  });
+      return Response.redirect(signed, 302);
+    }
 
-  return new Response(body, { status: 206, headers });
+    const total = Number(video.size_bytes);
+    const chunkSize = Number(video.chunk_size_bytes ?? 0);
+    const chunkCount = Number(video.chunk_count ?? 0);
+    if (!total || !chunkSize || !chunkCount) {
+      log("error", "stream.metadata_missing", { reqId, id, total, chunkSize, chunkCount });
+      return errorResponse(500, "Chunk metadata missing", reqId);
+    }
+
+    const range = parseRange(request.headers.get("range"), total);
+    if (!range) {
+      return new Response("Invalid range", {
+        status: 416,
+        headers: { ...BASE_HEADERS, "content-range": `bytes */${total}`, "x-request-id": reqId },
+      });
+    }
+
+    if (range.end - range.start + 1 > MAX_RESPONSE_BYTES) {
+      range.end = Math.min(range.start + MAX_RESPONSE_BYTES - 1, total - 1);
+    }
+
+    const contentLength = range.end - range.start + 1;
+    const headers = new Headers({
+      ...BASE_HEADERS,
+      "content-type": video.mime_type || "application/octet-stream",
+      "content-length": String(contentLength),
+      "cache-control": "public, max-age=31536000, immutable",
+      "content-range": `bytes ${range.start}-${range.end}/${total}`,
+      "x-request-id": reqId,
+      "server-timing": `prep;dur=${Date.now() - started}`,
+    });
+    if (headOnly) return new Response(null, { status: 206, headers });
+
+    const firstPart = Math.floor(range.start / chunkSize);
+    const lastPart = Math.floor(range.end / chunkSize);
+    const partIndices: number[] = [];
+    for (let p = firstPart; p <= lastPart; p += 1) partIndices.push(p);
+
+    const fetchPartRange = async (part: number): Promise<Uint8Array> => {
+      const partPath = `${video.storage_path}.part-${String(part).padStart(6, "0")}`;
+      const partStartByte = part * chunkSize;
+      const sliceStart = Math.max(0, range.start - partStartByte);
+      const partEndByte = partStartByte + chunkSize - 1;
+      const sliceEndAbs = Math.min(partEndByte, range.end);
+      const sliceEnd = sliceEndAbs - partStartByte;
+
+      let lastError: unknown;
+      for (let attempt = 0; attempt < CHUNK_FETCH_RETRIES; attempt += 1) {
+        try {
+          const signed = await getSignedUrl(partPath);
+          if (!signed) throw new Error(`sign_failed:part=${part}`);
+          const res = await fetchWithTimeout(
+            signed,
+            { headers: { range: `bytes=${sliceStart}-${sliceEnd}` } },
+            CHUNK_FETCH_TIMEOUT_MS,
+          );
+          if (res.status === 206 || res.status === 200) {
+            const buf = await res.arrayBuffer();
+            return new Uint8Array(buf);
+          }
+          // Invalidate cache on 4xx (signed URL may have expired mid-flight)
+          if (res.status === 400 || res.status === 401 || res.status === 403) {
+            urlCache.delete(partPath);
+          }
+          lastError = new Error(`chunk_http_${res.status}:part=${part}`);
+        } catch (e) {
+          lastError = e;
+          urlCache.delete(partPath);
+        }
+        // Exponential backoff with jitter
+        await new Promise((r) => setTimeout(r, 100 * 2 ** attempt + Math.random() * 100));
+      }
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    };
+
+    const body = new ReadableStream({
+      async start(controller) {
+        try {
+          const pending = new Map<number, Promise<Uint8Array>>();
+          const kick = (idx: number) => {
+            if (idx >= partIndices.length) return;
+            pending.set(partIndices[idx], fetchPartRange(partIndices[idx]));
+          };
+          for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) kick(i);
+
+          for (let i = 0; i < partIndices.length; i += 1) {
+            const part = partIndices[i];
+            const bytes = await pending.get(part)!;
+            pending.delete(part);
+            kick(i + PARALLEL_FETCHES);
+            controller.enqueue(bytes);
+          }
+          controller.close();
+        } catch (streamError) {
+          log("error", "stream.chunk_failed", { reqId, id, err: errShape(streamError) });
+          controller.error(streamError);
+        }
+      },
+    });
+
+    return new Response(body, { status: 206, headers });
+  } catch (err) {
+    log("error", "stream.unhandled", { reqId, id, err: errShape(err) });
+    return errorResponse(500, "Stream error", reqId);
+  }
 }
 
 function parseRange(header: string | null, total: number) {
