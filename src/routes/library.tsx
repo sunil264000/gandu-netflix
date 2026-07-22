@@ -24,10 +24,12 @@ function Library() {
   const _list = useServerFn(listVideos);
   const _cats = useServerFn(listCategories);
 
-  useEffect(() => { supabase.auth.getUser().then(({ data }) => { if (!data.user) nav({ to: "/auth" }); }); }, [nav]);
+  const [authed, setAuthed] = useState(false);
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => { if (!data.user) nav({ to: "/auth" }); else setAuthed(true); }); }, [nav]);
 
-  const cats = useQuery({ queryKey: ["cats"], queryFn: () => _cats() });
+  const cats = useQuery({ enabled: authed, queryKey: ["cats"], queryFn: () => _cats() });
   const list = useQuery({
+    enabled: authed,
     queryKey: ["library", sort, cat],
     queryFn: () => _list({ data: { sort, categoryId: cat, limit: 60 } }),
   });

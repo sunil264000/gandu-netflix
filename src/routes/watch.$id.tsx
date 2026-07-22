@@ -35,13 +35,14 @@ function Watch() {
   const _isFav = useServerFn(isFavorite);
   const _toggleFav = useServerFn(toggleFavorite);
   const [fav, setFav] = useState(false);
+  const [authed, setAuthed] = useState(false);
 
-  useEffect(() => { supabase.auth.getUser().then(({ data }) => { if (!data.user) nav({ to: "/auth" }); }); }, [nav]);
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => { if (!data.user) nav({ to: "/auth" }); else setAuthed(true); }); }, [nav]);
 
-  const video = useQuery({ queryKey: ["video", id], queryFn: () => _get({ data: { id } }) });
-  const related = useQuery({ queryKey: ["related", video.data?.category_id ?? null], queryFn: () => _related({ data: { sort: "new", categoryId: video.data?.category_id ?? null, limit: 12 } }), enabled: !!video.data });
+  const video = useQuery({ enabled: authed, queryKey: ["video", id], queryFn: () => _get({ data: { id } }) });
+  const related = useQuery({ queryKey: ["related", video.data?.category_id ?? null], queryFn: () => _related({ data: { sort: "new", categoryId: video.data?.category_id ?? null, limit: 12 } }), enabled: authed && !!video.data });
 
-  useEffect(() => { _isFav({ data: { videoId: id } }).then((r) => setFav(r.favorited)); }, [_isFav, id]);
+  useEffect(() => { if (authed) _isFav({ data: { videoId: id } }).then((r) => setFav(r.favorited)); }, [_isFav, id, authed]);
   useEffect(() => { if (video.data) _bump({ data: { videoId: id } }).catch(() => {}); }, [video.data?.id, _bump, id]);
 
   const onProgress = useCallback((pos: number, dur: number) => {
