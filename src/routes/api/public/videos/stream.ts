@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 24 * 1024 * 1024;
+const PARALLEL_FETCHES = 4;
 
 type StreamVideo = {
   id: string;
@@ -66,21 +67,45 @@ async function handleStream(request: Request, headOnly = false) {
     "accept-ranges": "bytes",
     "content-type": video.mime_type || "application/octet-stream",
     "content-length": String(contentLength),
-    "cache-control": "private, max-age=300",
+    "cache-control": "public, max-age=31536000, immutable",
   });
   if (status === 206) headers.set("content-range", `bytes ${range.start}-${range.end}/${total}`);
   if (headOnly) return new Response(null, { status, headers });
 
+  const firstPart = Math.floor(range.start / chunkSize);
+  const lastPart = Math.floor(range.end / chunkSize);
+
+  // Pre-fetch all needed chunks in parallel with bounded concurrency
+  const partIndices: number[] = [];
+  for (let p = firstPart; p <= lastPart; p += 1) partIndices.push(p);
+
   const body = new ReadableStream({
     async start(controller) {
       try {
-        const firstPart = Math.floor(range.start / chunkSize);
-        const lastPart = Math.floor(range.end / chunkSize);
-
-        for (let part = firstPart; part <= lastPart; part += 1) {
+        const pending = new Map<number, Promise<Blob>>();
+        const fetchPart = (part: number) => {
           const partPath = `${video.storage_path}.part-${String(part).padStart(6, "0")}`;
-          const { data: blob, error: downloadError } = await supabaseAdmin.storage.from("videos").download(partPath);
-          if (downloadError || !blob) throw downloadError ?? new Error("missing chunk");
+          return supabaseAdmin.storage.from("videos").download(partPath).then(({ data: blob, error: e }) => {
+            if (e || !blob) throw e ?? new Error("missing chunk");
+            return blob;
+          });
+        };
+
+        // Kick off initial parallel window
+        for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) {
+          pending.set(partIndices[i], fetchPart(partIndices[i]));
+        }
+
+        for (let i = 0; i < partIndices.length; i += 1) {
+          const part = partIndices[i];
+          const blob = await pending.get(part)!;
+          pending.delete(part);
+
+          // Queue next
+          const nextIdx = i + PARALLEL_FETCHES;
+          if (nextIdx < partIndices.length) {
+            pending.set(partIndices[nextIdx], fetchPart(partIndices[nextIdx]));
+          }
 
           const partStartByte = part * chunkSize;
           const sliceStart = Math.max(0, range.start - partStartByte);
