@@ -662,6 +662,10 @@ export type Database = {
         Returns: boolean
       }
       increment_video_view: { Args: { _video_id: string }; Returns: undefined }
+      increment_video_view_admin: {
+        Args: { _video_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "user"
