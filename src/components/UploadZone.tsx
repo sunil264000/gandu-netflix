@@ -1,7 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import * as tus from "tus-js-client";
-import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp } from "lucide-react";
+import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp, Activity } from "lucide-react";
 import { createVideoRecord, createCategory, listCategories } from "@/lib/videos.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -245,8 +245,64 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
     Promise.all(workers);
   };
 
+  // Aggregate live progress across active jobs
+  const active = useMemo(
+    () => jobs.filter((j) => j.status !== "done" && j.status !== "error"),
+    [jobs],
+  );
+  const totalBytes = active.reduce((s, j) => s + j.file.size, 0);
+  const doneBytes = active.reduce((s, j) => s + (j.file.size * Math.min(100, j.progress)) / 100, 0);
+  const combinedPct = totalBytes > 0 ? (doneBytes / totalBytes) * 100 : 0;
+
+  const lastRef = useRef<{ bytes: number; t: number }>({ bytes: 0, t: Date.now() });
+  const [speed, setSpeed] = useState(0); // bytes/sec, smoothed
+  useEffect(() => {
+    if (active.length === 0) { lastRef.current = { bytes: 0, t: Date.now() }; setSpeed(0); return; }
+    const id = setInterval(() => {
+      const now = Date.now();
+      const dt = (now - lastRef.current.t) / 1000;
+      const db = doneBytes - lastRef.current.bytes;
+      if (dt > 0) {
+        const inst = Math.max(0, db / dt);
+        setSpeed((prev) => prev === 0 ? inst : prev * 0.6 + inst * 0.4);
+      }
+      lastRef.current = { bytes: doneBytes, t: now };
+    }, 1000);
+    return () => clearInterval(id);
+  }, [active.length, doneBytes]);
+
+  const fmtMB = (b: number) => (b / 1024 / 1024).toFixed(1);
+  const eta = speed > 0 ? Math.max(0, (totalBytes - doneBytes) / speed) : 0;
+  const fmtETA = (s: number) => {
+    if (!isFinite(s) || s <= 0) return "—";
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+  };
+
   return (
     <div>
+      {active.length > 0 && (
+        <div className="mb-4 p-4 rounded-2xl bg-gradient-to-br from-red-500/10 to-white/[0.02] border border-red-500/30">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-red-400 animate-pulse" />
+              <span className="text-sm font-semibold text-white">Live uploads</span>
+              <span className="text-xs text-white/60">
+                {active.length} active · {fmtMB(doneBytes)} / {fmtMB(totalBytes)} MB
+              </span>
+            </div>
+            <div className="text-xs text-white/70 tabular-nums">
+              {(speed / 1024 / 1024).toFixed(2)} MB/s · ETA {fmtETA(eta)}
+            </div>
+          </div>
+          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-red-500 to-red-400 transition-all"
+              style={{ width: `${combinedPct}%` }} />
+          </div>
+          <div className="mt-1 text-right text-[11px] text-white/50 tabular-nums">{combinedPct.toFixed(1)}%</div>
+        </div>
+      )}
+
       <div
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
         onDragLeave={() => setDrag(false)}
