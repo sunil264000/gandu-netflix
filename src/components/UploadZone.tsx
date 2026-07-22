@@ -90,11 +90,11 @@ async function extractThumbnail(file: File): Promise<{ blob: Blob | null; durati
         const w = v.videoWidth, h = v.videoHeight;
         if (!w || !h) { done(null); return; }
         const canvas = document.createElement("canvas");
-        const scale = Math.min(1, 640 / w);
+        const scale = Math.min(1, 1920 / w);
         canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
         const ctx = canvas.getContext("2d"); if (!ctx) { done(null); return; }
         ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((b) => done(b), "image/jpeg", 0.82);
+        canvas.toBlob((b) => done(b), "image/jpeg", 0.95);
       } catch { done(null); }
     };
     v.onerror = () => done(null);

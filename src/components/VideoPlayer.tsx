@@ -218,7 +218,8 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
         ref={vidRef}
         src={src}
         poster={poster ?? undefined}
-        className="w-full h-full"
+        className="w-full h-full object-contain"
+        style={{ imageRendering: "auto" }}
         autoPlay={autoPlay}
         playsInline
         preload="auto"
