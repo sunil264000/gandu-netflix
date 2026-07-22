@@ -156,6 +156,9 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       });
     };
 
+    const canceller: Canceller = { cancelled: false };
+    cancellersRef.current.set(job.id, canceller);
+
     try {
       const file = job.file;
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -167,6 +170,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         id: job.id, filename: file.name, sizeBytes: file.size, seriesLabel: job.seriesLabel,
       });
 
+      if (canceller.cancelled) throw new Error("Cancelled");
       updateJob(job.id, { status: "thumb", message: "Generating thumbnail..." });
       remote({ status: "thumb", message: "Generating thumbnail...", progress: 0, force: true });
       const meta = await extractThumbnail(file);
@@ -179,6 +183,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         } catch { thumbnailPath = undefined; }
       }
 
+      if (canceller.cancelled) throw new Error("Cancelled");
       updateJob(job.id, { status: "uploading", message: "Uploading...", progress: 0 });
       remote({ status: "uploading", message: "Uploading...", progress: 0, force: true });
 
@@ -193,11 +198,11 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
       if (file.size > DIRECT_UPLOAD_LIMIT) {
         uploadMode = "chunked";
-        const chunkMeta = await uploadChunkedVideo(file, storagePath, onPct);
+        const chunkMeta = await uploadChunkedVideo(file, storagePath, onPct, canceller);
         chunkCount = chunkMeta.chunkCount;
         chunkSizeBytes = chunkMeta.chunkSizeBytes;
       } else {
-        await tusUpload("videos", storagePath, file, onPct);
+        await tusUpload("videos", storagePath, file, onPct, canceller);
       }
 
       updateJob(job.id, { status: "saving", message: "Finalizing...", progress: 100 });
