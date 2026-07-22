@@ -68,7 +68,11 @@ type Job = {
   progress: number;
   status: "queued" | "thumb" | "uploading" | "saving" | "done" | "error";
   message?: string;
+  seriesLabel?: string;
+  categoryOverride?: string | null;
 };
+
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|mkv|avi|m4v|ts|mpeg|mpg|3gp|flv|wmv)$/i;
 
 // Grab a thumbnail from the video by seeking + drawing to canvas.
 async function extractThumbnail(file: File): Promise<{ blob: Blob | null; duration: number; width: number; height: number }> {
