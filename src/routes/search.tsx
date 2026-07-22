@@ -36,7 +36,7 @@ function Search() {
           results.isLoading ? <VideoGridSkeleton count={12} /> :
           (results.data?.length ?? 0) === 0 ? <p className="text-white/50">No matches.</p> : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              {(results.data ?? []).map((v) => <VideoCard key={v.id} video={v} />)}
+              {(results.data ?? []).map((v) => <VideoCard key={v.id} v={v} />)}
             </div>
           )}
       </main>
