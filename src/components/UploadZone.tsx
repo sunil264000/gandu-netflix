@@ -62,19 +62,20 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       let thumbnailPath: string | undefined;
       if (meta.blob) {
         thumbnailPath = `${uid}.jpg`;
-        const up = await supabase.storage.from("thumbnails").upload(thumbnailPath, meta.blob, { contentType: "image/jpeg", upsert: false });
-        if (up.error) thumbnailPath = undefined;
+        try {
+          const t = await _getUrl({ data: { path: thumbnailPath, bucket: "thumbnails" } });
+          const r = await fetch(t.signedUrl, { method: "PUT", headers: { "Content-Type": "image/jpeg", "x-upsert": "false" }, body: meta.blob });
+          if (!r.ok) thumbnailPath = undefined;
+        } catch { thumbnailPath = undefined; }
       }
 
       updateJob(job.id, { status: "uploading", message: "Uploading...", progress: 0 });
 
-      // Direct upload with progress via fetch to signed URL — Supabase doesn't expose progress on .upload()
-      const signed = await supabase.storage.from("videos").createSignedUploadUrl(storagePath);
-      if (signed.error || !signed.data) throw new Error(signed.error?.message ?? "sign_failed");
+      const signed = await _getUrl({ data: { path: storagePath, bucket: "videos" } });
 
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("PUT", signed.data.signedUrl);
+        xhr.open("PUT", signed.signedUrl);
         xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
         xhr.setRequestHeader("x-upsert", "false");
         xhr.upload.onprogress = (e) => {
