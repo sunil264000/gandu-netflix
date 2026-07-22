@@ -24,10 +24,11 @@ function Search() {
   const { q } = Route.useSearch();
   const _search = useServerFn(searchVideos);
 
-  useEffect(() => { supabase.auth.getUser().then(({ data }) => { if (!data.user) nav({ to: "/auth" }); }); }, [nav]);
+  const [authed, setAuthed] = useState(false);
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => { if (!data.user) nav({ to: "/auth" }); else setAuthed(true); }); }, [nav]);
 
   const results = useQuery({
-    queryKey: ["search", q], queryFn: () => _search({ data: { q } }), enabled: q.length > 0,
+    queryKey: ["search", q], queryFn: () => _search({ data: { q } }), enabled: authed && q.length > 0,
   });
 
   return (
