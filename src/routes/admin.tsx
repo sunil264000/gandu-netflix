@@ -9,6 +9,7 @@ import {
   listVideos, listCategories, deleteVideo, updateVideo,
   createCategory, deleteCategory, storageStats,
 } from "@/lib/videos.functions";
+import { useLiveVideos } from "@/hooks/useLiveVideos";
 
 export const Route = createFileRoute("/admin")({
   component: Admin, ssr: false,
