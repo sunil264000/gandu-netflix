@@ -9,20 +9,25 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as SearchRouteImport } from './routes/search'
+import { Route as LibraryRouteImport } from './routes/library'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SuccessOrderIdRouteImport } from './routes/success.$orderId'
-import { Route as CheckoutOrderIdRouteImport } from './routes/checkout.$orderId'
+import { Route as WatchIdRouteImport } from './routes/watch.$id'
 import { Route as ApiPublicExtTokenRouteImport } from './routes/api/public/ext/token'
 import { Route as ApiPublicExtHeartbeatRouteImport } from './routes/api/public/ext/heartbeat'
 import { Route as ApiPublicExtExecRouteImport } from './routes/api/public/ext/exec'
 import { Route as ApiPublicExtActivateRouteImport } from './routes/api/public/ext/activate'
 
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LibraryRoute = LibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -40,14 +45,9 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SuccessOrderIdRoute = SuccessOrderIdRouteImport.update({
-  id: '/success/$orderId',
-  path: '/success/$orderId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CheckoutOrderIdRoute = CheckoutOrderIdRouteImport.update({
-  id: '/checkout/$orderId',
-  path: '/checkout/$orderId',
+const WatchIdRoute = WatchIdRouteImport.update({
+  id: '/watch/$id',
+  path: '/watch/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicExtTokenRoute = ApiPublicExtTokenRouteImport.update({
@@ -75,9 +75,9 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
-  '/dashboard': typeof DashboardRoute
-  '/checkout/$orderId': typeof CheckoutOrderIdRoute
-  '/success/$orderId': typeof SuccessOrderIdRoute
+  '/library': typeof LibraryRoute
+  '/search': typeof SearchRoute
+  '/watch/$id': typeof WatchIdRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -87,9 +87,9 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
-  '/dashboard': typeof DashboardRoute
-  '/checkout/$orderId': typeof CheckoutOrderIdRoute
-  '/success/$orderId': typeof SuccessOrderIdRoute
+  '/library': typeof LibraryRoute
+  '/search': typeof SearchRoute
+  '/watch/$id': typeof WatchIdRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -100,9 +100,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
-  '/dashboard': typeof DashboardRoute
-  '/checkout/$orderId': typeof CheckoutOrderIdRoute
-  '/success/$orderId': typeof SuccessOrderIdRoute
+  '/library': typeof LibraryRoute
+  '/search': typeof SearchRoute
+  '/watch/$id': typeof WatchIdRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -114,9 +114,9 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/auth'
-    | '/dashboard'
-    | '/checkout/$orderId'
-    | '/success/$orderId'
+    | '/library'
+    | '/search'
+    | '/watch/$id'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -126,9 +126,9 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/auth'
-    | '/dashboard'
-    | '/checkout/$orderId'
-    | '/success/$orderId'
+    | '/library'
+    | '/search'
+    | '/watch/$id'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -138,9 +138,9 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/auth'
-    | '/dashboard'
-    | '/checkout/$orderId'
-    | '/success/$orderId'
+    | '/library'
+    | '/search'
+    | '/watch/$id'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -151,9 +151,9 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   AuthRoute: typeof AuthRoute
-  DashboardRoute: typeof DashboardRoute
-  CheckoutOrderIdRoute: typeof CheckoutOrderIdRoute
-  SuccessOrderIdRoute: typeof SuccessOrderIdRoute
+  LibraryRoute: typeof LibraryRoute
+  SearchRoute: typeof SearchRoute
+  WatchIdRoute: typeof WatchIdRoute
   ApiPublicExtActivateRoute: typeof ApiPublicExtActivateRoute
   ApiPublicExtExecRoute: typeof ApiPublicExtExecRoute
   ApiPublicExtHeartbeatRoute: typeof ApiPublicExtHeartbeatRoute
@@ -162,11 +162,18 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/library': {
+      id: '/library'
+      path: '/library'
+      fullPath: '/library'
+      preLoaderRoute: typeof LibraryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -190,18 +197,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/success/$orderId': {
-      id: '/success/$orderId'
-      path: '/success/$orderId'
-      fullPath: '/success/$orderId'
-      preLoaderRoute: typeof SuccessOrderIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/checkout/$orderId': {
-      id: '/checkout/$orderId'
-      path: '/checkout/$orderId'
-      fullPath: '/checkout/$orderId'
-      preLoaderRoute: typeof CheckoutOrderIdRouteImport
+    '/watch/$id': {
+      id: '/watch/$id'
+      path: '/watch/$id'
+      fullPath: '/watch/$id'
+      preLoaderRoute: typeof WatchIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/ext/token': {
@@ -239,9 +239,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   AuthRoute: AuthRoute,
-  DashboardRoute: DashboardRoute,
-  CheckoutOrderIdRoute: CheckoutOrderIdRoute,
-  SuccessOrderIdRoute: SuccessOrderIdRoute,
+  LibraryRoute: LibraryRoute,
+  SearchRoute: SearchRoute,
+  WatchIdRoute: WatchIdRoute,
   ApiPublicExtActivateRoute: ApiPublicExtActivateRoute,
   ApiPublicExtExecRoute: ApiPublicExtExecRoute,
   ApiPublicExtHeartbeatRoute: ApiPublicExtHeartbeatRoute,
@@ -250,13 +250,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

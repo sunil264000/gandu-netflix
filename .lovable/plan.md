@@ -1,74 +1,86 @@
-# Lovable Infinity — Automated License Flow
 
-## User journey
+# Private Video Streaming App
 
-1. Visit landing → **Sign up / Sign in** (Google + Email)
-2. Instant **15-min trial license** appears on dashboard (one-click copy)
-3. Paste key into extension → **countdown starts on first activation**, key auto-expires
-4. When trial ends → dashboard shows **Buy a plan** with pricing
-5. User picks a plan → checkout (stubbed until gateway is chosen) → **new key generated**, shown with copy button
-6. Paste → countdown starts on activation → auto-expires when duration hits zero
+Replacing AI Infinity's landing/dashboard/admin/auth with a self-hosted-style video streaming app on Lovable Cloud. The `/extension` folder and its API routes stay untouched.
 
-## Plans (INR, proportionally scaled from ₹150/day → ₹20,000/year)
+## Reality check — read this first
 
-| Plan       | Duration     | Price     | Effective/day |
-| ---------- | ------------ | --------- | ------------- |
-| Day Pass   | 1 day        | ₹150      | ₹150          |
-| Weekly     | 7 days       | ₹899      | ₹128          |
-| Monthly    | 30 days      | ₹2,999    | ₹100          |
-| Quarterly  | 90 days      | ₹7,499    | ₹83           |
-| Half-year  | 180 days     | ₹12,999   | ₹72           |
-| Yearly     | 365 days     | ₹20,000   | ₹55           |
+You picked "upload from RDP into the website and watch on your PC." That means the videos live in **Lovable Cloud Storage** (a private Supabase bucket), not on your VPS filesystem. A few honest limits of this path vs. the original brief:
 
-No lifetime plan. Prices editable later from admin.
+- **File size ceiling.** Cloud Storage tops out at **50 GB per file** on the highest tier — 100 GB uploads aren't possible here. 5–50 GB will work.
+- **Uploads from RDP will be slow** — bound by your VPS's upload bandwidth to Cloud Storage, not by anything we can optimize in code. A 20 GB file over a 100 Mbit RDP link ≈ 30 min.
+- **Playback speed.** Cloud Storage serves files over HTTPS with **HTTP Range Requests natively**, so seeking and progressive playback work like YouTube once the file is uploaded. Playback bandwidth is the storage CDN's, not your VPS's — this is actually *better* than serving from a Windows box.
+- **No FFmpeg here** (Cloudflare Worker runtime — no native binaries). Thumbnails are generated **in your browser during upload** by seeking the `<video>` element and drawing to canvas. Free, instant, works for MP4/WebM/MOV. MKV/AVI thumbnails fall back to a generated placeholder (browsers can't decode those in `<video>`).
+- **MKV/AVI playback.** Chrome can play some MKV (H.264/H.265 + AAC) directly; pure AVI usually won't play in-browser without transcoding. MP4/WebM/MOV: universal.
 
-## Anti-abuse (Maximum)
+If any of that is a dealbreaker, tell me now and we'll rethink (e.g. keep files on your VPS + you run a small Node server there — I'd generate that zip separately).
 
-Trial is issued once per: **account + device fingerprint + IP**. Repeat attempts return the existing trial (or "trial exhausted" if it already expired). Fingerprint = the Canvas + WebGL + OS hash the extension already sends. IP is captured server-side from the trial-issue request.
+## What I'll build
 
-## Countdown model
+### Database (Postgres)
+- `videos` — title, description, storage_path, size_bytes, duration_sec, width, height, mime, thumbnail_path, category, created_at
+- `watch_history` — user_id, video_id, position_sec, completed, updated_at
+- `favorites` — user_id, video_id, created_at
+- `categories` — name, slug
 
-- Key row stores `duration_seconds` + nullable `activated_at`.
-- **First** `/api/public/ext/activate` from the extension sets `activated_at = now()` atomically. Subsequent activations return the same `expires_at = activated_at + duration_seconds`.
-- Server refuses `/exec` and `/token` calls after `expires_at`. Extension shows a live countdown from `expires_at` in the popup and disables features at 0.
-- Kill-switch, revocation, and heartbeat rules already in place still apply.
+RLS scoped to owner (`auth.uid()`). Since you're the sole admin, "owner" = you.
 
-## What I'll build this turn
+### Storage
+- Private bucket `videos` (up to 50 GB/file)
+- Private bucket `thumbnails` (public-read policy)
+- Signed URLs for playback (1 hr TTL, refreshed by the player)
 
-### Backend (Lovable Cloud)
-- Migration: add `plans` seed rows above; add `duration_seconds`, `activated_at`, `is_trial`, `trial_fingerprint`, `trial_ip` to `licenses`; add `orders` table (pending / paid / failed) linked to a plan and future gateway.
-- Server fns (`createServerFn`, all `requireSupabaseAuth`):
-  - `claimTrial()` — checks account+fp+ip, issues single 15-min trial, returns key
-  - `listMyLicenses()` — dashboard listing with live status (trial / active / expired)
-  - `listPlans()` — plans for the pricing grid
-  - `createOrder({ planId })` — creates a pending order, returns a checkout URL (currently a stub route)
-  - `getOrderStatus({ orderId })` — polls for "paid"
-- Public route `/api/public/ext/activate` extended to set `activated_at` on first call (atomic via SQL `UPDATE ... WHERE activated_at IS NULL`).
-- Stub checkout route `/checkout/$orderId` that immediately marks the order paid + generates the license (so end-to-end flow works today; swap for real gateway later).
+### Frontend routes (replaces existing pages)
+- `/auth` — email + password sign-in (kept; you already have an owner account)
+- `/` — Home: hero row, Continue Watching, Recently Added, Favorites, Categories grid
+- `/library` — full grid, infinite scroll, sort (newest / A-Z / largest / most watched), filter (extension, resolution, category)
+- `/search?q=` — instant search (title + description)
+- `/watch/$id` — player page (see below)
+- `/admin` — upload (drag & drop, multi-file, resumable via `tus`), rename, delete, change thumbnail, manage categories, storage usage dashboard, view counts
 
-### Frontend
-- `/` landing — hero, features, pricing preview, CTA to sign up
-- `/auth` — already exists; keep
-- `/dashboard` (under `_authenticated/`):
-  - "Your Trial" card with the key, copy button, live countdown, status pill
-  - "My Licenses" table (all past + active keys with countdowns)
-  - "Upgrade" grid — 6 plans with Buy button
-- `/checkout/$orderId` — stub gateway page with "Confirm payment" button
-- `/success/$orderId` — shows generated key with big copy button + install-extension steps
-- `/admin` — add plan editor (price + duration), order log
+### Video player (`/watch/$id`)
+Custom HTML5 player wrapper:
+- Signed streaming URL, HTTP Range native
+- Adaptive buffering (browser-native)
+- Fullscreen, PiP, playback speed 0.25–2×, volume, mute
+- Keyboard: Space play/pause, ← → seek 10s, J/L 10s, ↑↓ volume, M mute, F fullscreen, 0-9 jump %
+- Skip ±10s buttons
+- Resume from last position (writes to `watch_history` every 5 s + on pause)
+- Auto-next (next video in same category)
+- Up-next sidebar
 
-### Extension
-- Popup shows a live MM:SS countdown fed by the server's `expires_at`
-- On paste-activate: single `/activate` call locks the timer server-side
-- At expiry: features disabled, "Buy a plan" deep link to your site
+### Theme
+- `#0B0B0B` background, `#FF3B30` accent, 16 px radius
+- Glassmorphism cards (`backdrop-blur`, subtle border)
+- Framer Motion page transitions, hover scale on cards, skeleton loaders
+- Dark by default; light-mode toggle in header
+- Responsive down to 375 px
 
-### Payments
-- Stubbed for now (you said "will tell later"). Order marked paid instantly on the stub `/checkout` page → key generated the same way real gateway will do via webhook. When you name the gateway (Stripe / Razorpay / Paddle), I'll swap the stub for the real webhook + hosted checkout with no changes to the rest of the flow.
+### Access & auth
+- HTTPS is automatic (Lovable domain or your custom domain)
+- Single admin (you). Sign-in via existing `/auth`. No user management UI.
+- The current admin-claim logic stays: first sign-in becomes owner.
 
-## Out of scope this turn
+## What gets removed
+- `src/routes/index.tsx` (AI Infinity landing) → replaced
+- `src/routes/dashboard.tsx`, `checkout.$orderId.tsx`, `success.$orderId.tsx` → deleted
+- `src/routes/admin.tsx` → replaced with video admin
+- Extension licensing tables (`licenses`, `plans`, `orders`, `devices`, `sessions`, `usage_events`, `anomaly_flags`, `kill_switch`, `archives`) → **kept** (extension still uses them)
 
-- Real payment webhook (waiting on gateway choice)
-- Email receipts (add after gateway)
-- Coupon codes / referrals (say the word)
+## Out of scope for v1 (say the word to add)
+- Multi-user + roles
+- Watch parties / comments
+- HLS transcoding (only needed for AVI + weird codecs)
+- Mobile native app
+- Multi-language i18n (structure ready, only English strings)
 
-Approve and I'll ship it.
+## Rollout
+One big drop: migration → storage buckets → server functions (upload URL, list, signed stream URL, watch progress) → components (VideoCard, VideoPlayer, UploadDropzone, LibraryGrid) → routes → theming. I'll batch aggressively.
+
+## Confirm before I start
+
+1. **50 GB per-file cap OK?** (vs. the 100 GB in your brief)
+2. **Browser thumbnail generation OK?** (vs. server-side FFmpeg — MKV/AVI get a placeholder)
+3. **Delete `/dashboard`, `/checkout`, `/success` entirely?** (they're AI Infinity user-facing pages — extension backend keeps working)
+
+Reply "go" + any changes and I'll ship it.

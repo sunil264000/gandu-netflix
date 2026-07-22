@@ -17,7 +17,7 @@ function Auth() {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (data.user) nav({ to: "/dashboard" });
+      if (data.user) nav({ to: "/" });
     });
   }, [nav]);
 
@@ -25,7 +25,7 @@ function Auth() {
     setBusy(true); setErr("");
     const r = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin + "/auth" });
     if (r.error) { setErr(String(r.error.message ?? r.error)); setBusy(false); return; }
-    nav({ to: "/dashboard" });
+    nav({ to: "/" });
   };
 
   const emailSubmit = async (e: React.FormEvent) => {
@@ -35,7 +35,7 @@ function Auth() {
     const { error } = await fn;
     setBusy(false);
     if (error) return setErr(error.message);
-    nav({ to: "/dashboard" });
+    nav({ to: "/" });
   };
 
   return (
