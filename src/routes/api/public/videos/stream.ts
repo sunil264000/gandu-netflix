@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 24 * 1024 * 1024;
+const PARALLEL_FETCHES = 4;
 
 type StreamVideo = {
   id: string;
