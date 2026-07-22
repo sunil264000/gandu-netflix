@@ -275,14 +275,15 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         const cur = (j.file.size * Math.min(100, j.progress)) / 100;
         const prev = perJobRef.current.get(j.id);
         if (!prev) {
-          perJobRef.current.set(j.id, { bytes: cur, t: now, speed: 0 });
+          perJobRef.current.set(j.id, { bytes: cur, t: now, speed: 0, history: [0] });
         } else {
           const jdt = (now - prev.t) / 1000;
           const jdb = cur - prev.bytes;
           if (jdt > 0) {
             const inst = Math.max(0, jdb / jdt);
             const smoothed = prev.speed === 0 ? inst : prev.speed * 0.6 + inst * 0.4;
-            perJobRef.current.set(j.id, { bytes: cur, t: now, speed: smoothed });
+            const history = [...prev.history, smoothed].slice(-SPARK_MAX);
+            perJobRef.current.set(j.id, { bytes: cur, t: now, speed: smoothed, history });
           }
         }
       }
