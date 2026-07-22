@@ -57,7 +57,14 @@ export async function updateUploadJob(
   },
 ) {
   try {
-    const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const row: {
+      updated_at: string;
+      status?: TrackerStatus;
+      message?: string;
+      progress?: number;
+      uploaded_bytes?: number;
+      speed_bps?: number;
+    } = { updated_at: new Date().toISOString() };
     if (patch.status !== undefined) row.status = patch.status;
     if (patch.message !== undefined) row.message = patch.message;
     if (patch.progress !== undefined) row.progress = patch.progress;
@@ -67,4 +74,5 @@ export async function updateUploadJob(
   } catch {
     /* non-blocking */
   }
+
 }
