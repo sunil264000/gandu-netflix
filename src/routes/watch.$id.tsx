@@ -2,10 +2,9 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useState } from "react";
-import { Heart, ArrowLeft } from "lucide-react";
+import { Heart, ArrowLeft, Play, Share2, Clock } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoPlayer } from "@/components/VideoPlayer";
-import { VideoCard } from "@/components/VideoCard";
 import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite } from "@/lib/videos.functions";
 
 export const Route = createFileRoute("/watch/$id")({
@@ -24,6 +23,73 @@ function fmtBytes(b: number) {
   return (b / 1e3).toFixed(0) + " KB";
 }
 
+function fmtDur(s: number | null | undefined) {
+  if (!s || s <= 0) return "";
+  const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = Math.floor(s % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+type UpNextItem = {
+  id: string;
+  title: string;
+  duration_sec: number | null;
+  thumbnail_url: string | null;
+  view_count?: number;
+  position_sec?: number;
+};
+
+function UpNextCard({ v }: { v: UpNextItem }) {
+  const progress = v.position_sec && v.duration_sec ? Math.min(100, (v.position_sec / v.duration_sec) * 100) : 0;
+  return (
+    <Link to="/watch/$id" params={{ id: v.id }} className="flex gap-4 group">
+      <div className="relative w-44 aspect-video rounded-xl overflow-hidden bg-zinc-900 shrink-0 ring-1 ring-white/5 group-hover:ring-red-500/40 transition-all">
+        {v.thumbnail_url ? (
+          <img
+            src={v.thumbnail_url}
+            alt={v.title}
+            loading="lazy"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          />
+        ) : (
+          <div className="w-full h-full grid place-items-center"><Play className="w-6 h-6 text-white/20" /></div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+        <div className="absolute inset-0 grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="w-10 h-10 rounded-full bg-red-500 grid place-items-center shadow-lg shadow-red-500/50">
+            <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+          </div>
+        </div>
+        {v.duration_sec ? (
+          <span className="absolute bottom-1.5 right-1.5 bg-black/80 text-[10px] px-1.5 py-0.5 rounded-md font-bold tracking-tighter backdrop-blur-sm text-white">
+            {fmtDur(v.duration_sec)}
+          </span>
+        ) : null}
+        {progress > 0 && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+            <div className="h-full bg-red-500" style={{ width: `${progress}%` }} />
+          </div>
+        )}
+      </div>
+      <div className="flex flex-col gap-1 min-w-0">
+        <h3 className="text-sm font-semibold line-clamp-2 leading-snug text-white group-hover:text-red-400 transition-colors">
+          {v.title}
+        </h3>
+        {(v.view_count ?? 0) > 0 && (
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+            <span>{v.view_count} view{v.view_count === 1 ? "" : "s"}</span>
+            {v.duration_sec ? (
+              <>
+                <span className="w-0.5 h-0.5 rounded-full bg-zinc-700" />
+                <span className="inline-flex items-center gap-0.5"><Clock className="w-3 h-3" />{fmtDur(v.duration_sec)}</span>
+              </>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </Link>
+  );
+}
+
 function Watch() {
   const nav = useNavigate();
   const { id } = Route.useParams();
@@ -34,6 +100,7 @@ function Watch() {
   const _isFav = useServerFn(isFavorite);
   const _toggleFav = useServerFn(toggleFavorite);
   const [fav, setFav] = useState(false);
+  const [autoplay, setAutoplay] = useState(true);
 
   const video = useQuery({ queryKey: ["video", id], queryFn: () => _get({ data: { id } }) });
   const related = useQuery({ queryKey: ["related", video.data?.category_id ?? null], queryFn: () => _related({ data: { sort: "new", categoryId: video.data?.category_id ?? null, limit: 12 } }), enabled: !!video.data });
@@ -46,67 +113,144 @@ function Watch() {
   }, [_progress, id]);
 
   const onEnded = useCallback(() => {
+    if (!autoplay) return;
     const next = (related.data ?? []).find((v) => v.id !== id);
     if (next) setTimeout(() => nav({ to: "/watch/$id", params: { id: next.id } }), 1200);
-  }, [related.data, id, nav]);
+  }, [related.data, id, nav, autoplay]);
 
   const doToggleFav = async () => {
     const r = await _toggleFav({ data: { videoId: id } });
     setFav(r.favorited);
   };
 
+  const upNext = (related.data ?? []).filter((v) => v.id !== id);
+
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30">
       <AppHeader />
-      <main className="max-w-[1600px] mx-auto px-6 py-6">
-        <Link to="/" className="inline-flex items-center gap-1 text-sm text-white/60 hover:text-white mb-4">
-          <ArrowLeft className="w-4 h-4" /> Back
+      <main className="max-w-7xl mx-auto px-4 lg:px-8 py-6 lg:py-10">
+        <Link to="/" className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-zinc-500 hover:text-white transition-colors mb-6">
+          <ArrowLeft className="w-3.5 h-3.5" /> Back
         </Link>
 
         {video.isLoading ? (
-          <div className="aspect-video w-full rounded-2xl bg-white/5 animate-pulse" />
+          <div className="aspect-video w-full rounded-3xl bg-white/5 animate-pulse" />
         ) : video.error || !video.data ? (
           <div className="text-center py-20 text-white/60">Video not found.</div>
         ) : (
-          <div className="grid lg:grid-cols-[1fr_360px] gap-6">
-            <div>
-              {video.data.stream_url && (
-                <VideoPlayer
-                  src={video.data.stream_url}
-                  poster={video.data.thumbnail_url}
-                  startAt={video.data.resume_at}
-                  onProgress={onProgress}
-                  onEnded={onEnded}
-                  autoPlay
-                />
-              )}
-              <div className="mt-5 flex items-start gap-4">
-                <div className="flex-1">
-                  <h1 className="text-2xl font-bold">{video.data.title}</h1>
-                  <p className="mt-1 text-sm text-white/50">
-                    {video.data.view_count} views · {fmtBytes(video.data.size_bytes)}
-                    {video.data.width && video.data.height ? ` · ${video.data.width}×${video.data.height}` : ""}
-                  </p>
+          <div className="grid grid-cols-12 gap-6 lg:gap-10 items-start">
+            {/* Main player + meta */}
+            <div className="col-span-12 lg:col-span-8 space-y-8">
+              {/* Ambient glow wrapper */}
+              <div className="relative">
+                <div aria-hidden className="pointer-events-none absolute -inset-8 rounded-[2rem] bg-gradient-to-tr from-red-500/20 via-red-600/5 to-transparent blur-3xl opacity-60" />
+                <div className="relative aspect-video bg-black rounded-3xl overflow-hidden shadow-[0_32px_64px_-16px_rgba(0,0,0,0.7)] ring-1 ring-white/10">
+                  {video.data.stream_url && (
+                    <VideoPlayer
+                      src={video.data.stream_url}
+                      poster={video.data.thumbnail_url}
+                      startAt={video.data.resume_at}
+                      onProgress={onProgress}
+                      onEnded={onEnded}
+                      autoPlay
+                    />
+                  )}
                 </div>
-                <button onClick={doToggleFav} className={`flex items-center gap-2 px-4 py-2 rounded-full border transition ${fav ? "bg-red-500/20 border-red-500/50 text-red-400" : "bg-white/5 border-white/10 hover:bg-white/10"}`}>
-                  <Heart className={`w-4 h-4 ${fav ? "fill-red-400" : ""}`} />
-                  <span className="text-sm">{fav ? "Favorited" : "Favorite"}</span>
-                </button>
               </div>
-              {video.data.description && (
-                <div className="mt-5 p-4 rounded-xl bg-white/5 border border-white/10 whitespace-pre-wrap text-sm text-white/80">
-                  {video.data.description}
+
+              {/* Title + meta */}
+              <div className="space-y-6">
+                <div className="flex flex-col gap-3">
+                  <h1 className="text-2xl md:text-3xl font-bold tracking-tight leading-tight text-white">
+                    {video.data.title}
+                  </h1>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-medium text-zinc-400">
+                    <span>{video.data.view_count} view{video.data.view_count === 1 ? "" : "s"}</span>
+                    <span className="w-1 h-1 rounded-full bg-zinc-700" />
+                    <span>{fmtBytes(video.data.size_bytes)}</span>
+                    {video.data.width && video.data.height ? (
+                      <>
+                        <span className="w-1 h-1 rounded-full bg-zinc-700" />
+                        <span className="px-2 py-0.5 rounded-md bg-zinc-900 ring-1 ring-white/10 text-xs font-semibold text-zinc-300">
+                          {video.data.width}×{video.data.height}
+                        </span>
+                      </>
+                    ) : null}
+                    {video.data.duration_sec ? (
+                      <>
+                        <span className="w-1 h-1 rounded-full bg-zinc-700" />
+                        <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{fmtDur(video.data.duration_sec)}</span>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
-              )}
+
+                <div className="flex flex-wrap items-center justify-end gap-3 py-6 border-y border-zinc-800/60">
+                  <button
+                    onClick={doToggleFav}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-semibold text-sm transition-all group border ${
+                      fav
+                        ? "bg-red-500/15 border-red-500/50 text-red-300 hover:bg-red-500/25"
+                        : "bg-zinc-800/50 border-zinc-700/50 text-zinc-200 hover:bg-zinc-800"
+                    }`}
+                  >
+                    <Heart className={`w-4 h-4 transition-colors ${fav ? "fill-red-400 text-red-400" : "text-zinc-400 group-hover:text-red-400"}`} />
+                    {fav ? "Favorited" : "Favorite"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const url = typeof window !== "undefined" ? window.location.href : "";
+                      if (navigator.share) navigator.share({ title: video.data!.title, url }).catch(() => {});
+                      else if (url) navigator.clipboard?.writeText(url).catch(() => {});
+                    }}
+                    className="p-2.5 rounded-full bg-zinc-800/50 border border-zinc-700/50 hover:bg-zinc-800 transition-all text-zinc-200"
+                    aria-label="Share"
+                  >
+                    <Share2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {video.data.description && (
+                  <div className="p-5 rounded-2xl bg-zinc-900/40 border border-white/5 whitespace-pre-wrap text-sm text-zinc-300 leading-relaxed">
+                    {video.data.description}
+                  </div>
+                )}
+              </div>
             </div>
 
-            <aside>
-              <h3 className="text-sm uppercase tracking-wider text-white/50 mb-3">Up Next</h3>
-              <div className="space-y-3">
-                {(related.data ?? []).filter((v) => v.id !== id).slice(0, 10).map((v, i) => (
-                  <VideoCard key={v.id} v={v} index={i} />
-                ))}
+            {/* Up Next rail */}
+            <aside className="col-span-12 lg:col-span-4 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-black uppercase tracking-[0.25em] text-zinc-500">Up Next</h2>
+                <button
+                  type="button"
+                  onClick={() => setAutoplay((a) => !a)}
+                  className="flex items-center gap-2 group"
+                  aria-label="Toggle autoplay"
+                >
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest group-hover:text-zinc-300 transition-colors">Autoplay</span>
+                  <span className={`w-8 h-4 rounded-full relative p-0.5 transition-colors ${autoplay ? "bg-red-600/80" : "bg-zinc-800"}`}>
+                    <span className={`absolute top-0.5 w-3 h-3 rounded-full transition-all ${autoplay ? "right-0.5 bg-white" : "left-0.5 bg-zinc-400"}`} />
+                  </span>
+                </button>
               </div>
+
+              <div className="space-y-5">
+                {upNext.length === 0 ? (
+                  <p className="text-sm text-zinc-500">Nothing else here yet.</p>
+                ) : (
+                  upNext.slice(0, 10).map((v) => <UpNextCard key={v.id} v={v} />)
+                )}
+              </div>
+
+              {upNext.length > 10 && (
+                <Link
+                  to="/library"
+                  className="block w-full text-center py-3 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-xs font-bold text-zinc-400 hover:text-white uppercase tracking-widest transition-all"
+                >
+                  Browse Library
+                </Link>
+              )}
             </aside>
           </div>
         )}
