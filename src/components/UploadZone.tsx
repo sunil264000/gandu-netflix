@@ -363,34 +363,53 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
       {jobs.length > 0 && (
         <div className="mt-4 space-y-2">
-          {jobs.map((j) => (
-            <div key={j.id} className="p-3 rounded-xl bg-white/5 border border-white/10">
-              <div className="flex items-center gap-3">
-                <div className="flex-shrink-0">
-                  {j.status === "done" ? <CheckCircle2 className="w-5 h-5 text-green-400" /> :
-                   j.status === "error" ? <AlertCircle className="w-5 h-5 text-red-400" /> :
-                   <Loader2 className="w-5 h-5 text-red-400 animate-spin" />}
+          {jobs.map((j) => {
+            const jStats = perJobRef.current.get(j.id);
+            const jSpeed = jStats?.speed ?? 0;
+            const jDone = (j.file.size * Math.min(100, j.progress)) / 100;
+            const jEta = jSpeed > 0 ? Math.max(0, (j.file.size - jDone) / jSpeed) : 0;
+            const showStats = j.status === "uploading" || j.status === "saving";
+            return (
+              <div key={j.id} className="p-3 rounded-xl bg-white/5 border border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0">
+                    {j.status === "done" ? <CheckCircle2 className="w-5 h-5 text-green-400" /> :
+                     j.status === "error" ? <AlertCircle className="w-5 h-5 text-red-400" /> :
+                     <Loader2 className="w-5 h-5 text-red-400 animate-spin" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white truncate">
+                      {j.seriesLabel ? <span className="text-red-400 mr-1.5">[{j.seriesLabel}]</span> : null}
+                      {j.file.name}
+                    </p>
+                    <p className="text-xs text-white/50">{j.message ?? j.status} — {fmtMB(j.file.size)} MB</p>
+                  </div>
+                  {showStats && (
+                    <div className="text-right text-xs text-white/70 tabular-nums whitespace-nowrap">
+                      <div className="text-white font-medium">{j.progress.toFixed(1)}%</div>
+                      <div>{(jSpeed / 1024 / 1024).toFixed(2)} MB/s · ETA {fmtETA(jEta)}</div>
+                    </div>
+                  )}
+                  {j.status === "done" && (
+                    <button onClick={() => setJobs((p) => p.filter((x) => x.id !== j.id))} className="p-1 text-white/40 hover:text-white">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white truncate">
-                    {j.seriesLabel ? <span className="text-red-400 mr-1.5">[{j.seriesLabel}]</span> : null}
-                    {j.file.name}
-                  </p>
-                  <p className="text-xs text-white/50">{j.message ?? j.status} — {(j.file.size / 1024 / 1024).toFixed(1)} MB</p>
-                </div>
-                {j.status === "done" && (
-                  <button onClick={() => setJobs((p) => p.filter((x) => x.id !== j.id))} className="p-1 text-white/40 hover:text-white">
-                    <X className="w-4 h-4" />
-                  </button>
+                {showStats && (
+                  <>
+                    <div className="mt-2 h-1.5 bg-white/10 rounded overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-red-500 to-red-400 transition-all" style={{ width: `${j.progress}%` }} />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] text-white/50 tabular-nums">
+                      <span>{fmtMB(jDone)} / {fmtMB(j.file.size)} MB</span>
+                      <span>{j.status === "saving" ? "Finalizing…" : "Uploading"}</span>
+                    </div>
+                  </>
                 )}
               </div>
-              {(j.status === "uploading" || j.status === "saving") && (
-                <div className="mt-2 h-1 bg-white/10 rounded overflow-hidden">
-                  <div className="h-full bg-red-500 transition-all" style={{ width: `${j.progress}%` }} />
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
