@@ -12,14 +12,14 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const DIRECT_UPLOAD_LIMIT = 42 * 1024 * 1024;
 const VIDEO_CHUNK_SIZE = 32 * 1024 * 1024;
 
-function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?: (pct: number) => void) {
+type Canceller = { cancelled: boolean; abort?: () => void };
+
+function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?: (pct: number) => void, canceller?: Canceller) {
   return new Promise<void>((resolve, reject) => {
     const upload = new tus.Upload(file, {
       endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
       retryDelays: [0, 3000, 5000, 10000, 20000],
       headers: { Authorization: `Bearer ${SUPABASE_KEY}`, "x-upsert": "true", apikey: SUPABASE_KEY },
-      // Keep the initial POST body empty. Sending data during creation can make
-      // large browser uploads fail with a 413 before chunked PATCH uploads start.
       uploadDataDuringCreation: false,
       removeFingerprintOnSuccess: true,
       metadata: {
@@ -33,6 +33,12 @@ function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?:
       onProgress: (sent, total) => onProgress?.((sent / total) * 100),
       onSuccess: () => resolve(),
     });
+    if (canceller) {
+      canceller.abort = () => {
+        try { upload.abort(true); } catch { /* ignore */ }
+        reject(new Error("Cancelled"));
+      };
+    }
     upload.start();
   });
 }
@@ -46,11 +52,12 @@ async function uploadObject(bucket: "videos" | "thumbnails", path: string, blob:
   if (error) throw error;
 }
 
-async function uploadChunkedVideo(file: File, basePath: string, onProgress?: (pct: number) => void) {
+async function uploadChunkedVideo(file: File, basePath: string, onProgress?: (pct: number) => void, canceller?: Canceller) {
   const chunkCount = Math.ceil(file.size / VIDEO_CHUNK_SIZE);
   let uploaded = 0;
 
   for (let index = 0; index < chunkCount; index += 1) {
+    if (canceller?.cancelled) throw new Error("Cancelled");
     const start = index * VIDEO_CHUNK_SIZE;
     const end = Math.min(file.size, start + VIDEO_CHUNK_SIZE);
     const partPath = `${basePath}.part-${String(index).padStart(6, "0")}`;
@@ -112,9 +119,18 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
   const _createCat = useServerFn(createCategory);
   const _listCats = useServerFn(listCategories);
   const qc = useQueryClient();
+  const cancellersRef = useRef<Map<string, Canceller>>(new Map());
 
   const updateJob = (id: string, patch: Partial<Job>) =>
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
+
+  const cancelJob = (id: string) => {
+    const c = cancellersRef.current.get(id);
+    if (c) { c.cancelled = true; c.abort?.(); }
+    updateJob(id, { status: "error", message: "Cancelled" });
+    updateUploadJob(id, { status: "error", message: "Cancelled", progress: 0 });
+    cancellersRef.current.delete(id);
+  };
 
   const processFile = useCallback(async (job: Job) => {
     // Server tracker heartbeat state (throttled remote update)
@@ -140,6 +156,9 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       });
     };
 
+    const canceller: Canceller = { cancelled: false };
+    cancellersRef.current.set(job.id, canceller);
+
     try {
       const file = job.file;
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -151,6 +170,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         id: job.id, filename: file.name, sizeBytes: file.size, seriesLabel: job.seriesLabel,
       });
 
+      if (canceller.cancelled) throw new Error("Cancelled");
       updateJob(job.id, { status: "thumb", message: "Generating thumbnail..." });
       remote({ status: "thumb", message: "Generating thumbnail...", progress: 0, force: true });
       const meta = await extractThumbnail(file);
@@ -163,6 +183,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         } catch { thumbnailPath = undefined; }
       }
 
+      if (canceller.cancelled) throw new Error("Cancelled");
       updateJob(job.id, { status: "uploading", message: "Uploading...", progress: 0 });
       remote({ status: "uploading", message: "Uploading...", progress: 0, force: true });
 
@@ -177,11 +198,11 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
       if (file.size > DIRECT_UPLOAD_LIMIT) {
         uploadMode = "chunked";
-        const chunkMeta = await uploadChunkedVideo(file, storagePath, onPct);
+        const chunkMeta = await uploadChunkedVideo(file, storagePath, onPct, canceller);
         chunkCount = chunkMeta.chunkCount;
         chunkSizeBytes = chunkMeta.chunkSizeBytes;
       } else {
-        await tusUpload("videos", storagePath, file, onPct);
+        await tusUpload("videos", storagePath, file, onPct, canceller);
       }
 
       updateJob(job.id, { status: "saving", message: "Finalizing...", progress: 100 });
@@ -203,6 +224,8 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       const msg = (e as Error).message || "Upload failed";
       updateJob(job.id, { status: "error", message: msg });
       updateUploadJob(job.id, { status: "error", message: msg });
+    } finally {
+      cancellersRef.current.delete(job.id);
     }
   }, [_create, categoryId, onDone]);
 
@@ -474,8 +497,18 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                       <div>{showStats ? `${(jSpeed / 1024 / 1024).toFixed(2)} MB/s` : "—"}</div>
                     </div>
                   )}
-                  {j.status === "done" && (
-                    <button onClick={() => setJobs((p) => p.filter((x) => x.id !== j.id))} className="p-1 text-white/40 hover:text-white">
+                  {isActive && (
+                    <button
+                      onClick={() => cancelJob(j.id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-500/15 hover:bg-red-500/30 text-red-300 text-xs font-medium border border-red-500/30"
+                      title="Cancel upload"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Cancel
+                    </button>
+                  )}
+                  {(j.status === "done" || j.status === "error") && (
+                    <button onClick={() => setJobs((p) => p.filter((x) => x.id !== j.id))} className="p-1 text-white/40 hover:text-white" title="Remove">
                       <X className="w-4 h-4" />
                     </button>
                   )}
