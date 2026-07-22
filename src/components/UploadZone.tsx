@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import * as tus from "tus-js-client";
-import { Upload, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { createVideoRecord } from "@/lib/videos.functions";
+import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp } from "lucide-react";
+import { createVideoRecord, createCategory, listCategories } from "@/lib/videos.functions";
 import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
