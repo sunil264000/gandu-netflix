@@ -48,6 +48,8 @@ function Admin() {
   const cats = useQuery({ queryKey: ["admin:cats"], queryFn: () => _cats() });
   const stats = useQuery({ queryKey: ["admin:stats"], queryFn: () => _stats() });
 
+  useLiveVideos([["admin:videos"], ["admin:stats"]]);
+
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["admin:videos"] });
     qc.invalidateQueries({ queryKey: ["admin:stats"] });
