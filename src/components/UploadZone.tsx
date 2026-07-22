@@ -256,7 +256,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
   const lastRef = useRef<{ bytes: number; t: number }>({ bytes: 0, t: Date.now() });
   const [speed, setSpeed] = useState(0); // bytes/sec, smoothed
-  const perJobRef = useRef<Map<string, { bytes: number; t: number; speed: number; history: number[] }>>(new Map());
+  const perJobRef = useRef<Map<string, { bytes: number; t: number; speed: number; history: number[]; startedAt: number }>>(new Map());
   const SPARK_MAX = 40;
   const [, setTick] = useState(0);
   useEffect(() => {
