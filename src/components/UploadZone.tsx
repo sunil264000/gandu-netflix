@@ -299,6 +299,27 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
     const m = Math.floor(s / 60), sec = Math.floor(s % 60);
     return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
   };
+  const Sparkline = ({ data, width = 90, height = 28 }: { data: number[]; width?: number; height?: number }) => {
+    if (!data.length) return null;
+    const max = Math.max(...data, 1);
+    const step = data.length > 1 ? width / (data.length - 1) : width;
+    const pts = data.map((v, i) => `${(i * step).toFixed(1)},${(height - (v / max) * height).toFixed(1)}`);
+    const line = `M${pts.join(" L")}`;
+    const area = `${line} L${width},${height} L0,${height} Z`;
+    return (
+      <svg width={width} height={height} className="overflow-visible">
+        <defs>
+          <linearGradient id="sparkFill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="rgb(248 113 113)" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="rgb(248 113 113)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#sparkFill)" />
+        <path d={line} fill="none" stroke="rgb(248 113 113)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    );
+  };
+
 
   return (
     <div>
