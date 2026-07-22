@@ -158,7 +158,9 @@ export const bumpView = createServerFn({ method: "POST" })
   .inputValidator((i: { videoId: string }) => z.object({ videoId: z.string().uuid() }).parse(i))
   .handler(async ({ data }) => {
     const sb = await admin();
-    await sb.from("videos").update({ view_count: (await sb.from("videos").select("view_count").eq("id", data.videoId).single()).data?.view_count + 1 || 1 }).eq("id", data.videoId);
+    const { data: cur } = await sb.from("videos").select("view_count").eq("id", data.videoId).maybeSingle();
+    const next = (cur?.view_count ?? 0) + 1;
+    await sb.from("videos").update({ view_count: next }).eq("id", data.videoId);
     return { ok: true };
   });
 
