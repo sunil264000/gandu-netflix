@@ -224,7 +224,7 @@ export const updateVideo = createServerFn({ method: "POST" })
     }).parse(i))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const patch: Record<string, unknown> = {};
+    const patch: { title?: string; description?: string | null; category_id?: string | null } = {};
     if (data.title !== undefined) patch.title = data.title;
     if (data.description !== undefined) patch.description = data.description;
     if (data.categoryId !== undefined) patch.category_id = data.categoryId;
