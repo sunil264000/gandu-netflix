@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoRow, VideoGridSkeleton } from "@/components/VideoCard";
 import { listVideos, listContinueWatching, listFavorites } from "@/lib/videos.functions";
+import { useLiveVideos } from "@/hooks/useLiveVideos";
 
 export const Route = createFileRoute("/")({
   component: Home,
