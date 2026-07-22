@@ -12,14 +12,14 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const DIRECT_UPLOAD_LIMIT = 42 * 1024 * 1024;
 const VIDEO_CHUNK_SIZE = 32 * 1024 * 1024;
 
-function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?: (pct: number) => void) {
+type Canceller = { cancelled: boolean; abort?: () => void };
+
+function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?: (pct: number) => void, canceller?: Canceller) {
   return new Promise<void>((resolve, reject) => {
     const upload = new tus.Upload(file, {
       endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
       retryDelays: [0, 3000, 5000, 10000, 20000],
       headers: { Authorization: `Bearer ${SUPABASE_KEY}`, "x-upsert": "true", apikey: SUPABASE_KEY },
-      // Keep the initial POST body empty. Sending data during creation can make
-      // large browser uploads fail with a 413 before chunked PATCH uploads start.
       uploadDataDuringCreation: false,
       removeFingerprintOnSuccess: true,
       metadata: {
@@ -33,6 +33,12 @@ function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?:
       onProgress: (sent, total) => onProgress?.((sent / total) * 100),
       onSuccess: () => resolve(),
     });
+    if (canceller) {
+      canceller.abort = () => {
+        try { upload.abort(true); } catch { /* ignore */ }
+        reject(new Error("Cancelled"));
+      };
+    }
     upload.start();
   });
 }
@@ -46,11 +52,12 @@ async function uploadObject(bucket: "videos" | "thumbnails", path: string, blob:
   if (error) throw error;
 }
 
-async function uploadChunkedVideo(file: File, basePath: string, onProgress?: (pct: number) => void) {
+async function uploadChunkedVideo(file: File, basePath: string, onProgress?: (pct: number) => void, canceller?: Canceller) {
   const chunkCount = Math.ceil(file.size / VIDEO_CHUNK_SIZE);
   let uploaded = 0;
 
   for (let index = 0; index < chunkCount; index += 1) {
+    if (canceller?.cancelled) throw new Error("Cancelled");
     const start = index * VIDEO_CHUNK_SIZE;
     const end = Math.min(file.size, start + VIDEO_CHUNK_SIZE);
     const partPath = `${basePath}.part-${String(index).padStart(6, "0")}`;
