@@ -1,8 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoCard, VideoGridSkeleton } from "@/components/VideoCard";
 import { listVideos, listCategories } from "@/lib/videos.functions";
@@ -18,18 +17,13 @@ export const Route = createFileRoute("/library")({
 });
 
 function Library() {
-  const nav = useNavigate();
   const [sort, setSort] = useState<"new" | "az" | "large" | "views">("new");
   const [cat, setCat] = useState<string | null>(null);
   const _list = useServerFn(listVideos);
   const _cats = useServerFn(listCategories);
 
-  const [authed, setAuthed] = useState(false);
-  useEffect(() => { supabase.auth.getUser().then(({ data }) => { if (!data.user) nav({ to: "/auth" }); else setAuthed(true); }); }, [nav]);
-
-  const cats = useQuery({ enabled: authed, queryKey: ["cats"], queryFn: () => _cats() });
+  const cats = useQuery({ queryKey: ["cats"], queryFn: () => _cats() });
   const list = useQuery({
-    enabled: authed,
     queryKey: ["library", sort, cat],
     queryFn: () => _list({ data: { sort, categoryId: cat, limit: 60 } }),
   });
@@ -49,19 +43,16 @@ function Library() {
           </select>
           <select value={cat ?? ""} onChange={(e) => setCat(e.target.value || null)}
             className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500/60">
-            <option value="">All categories</option>
+            <option value="">All Categories</option>
             {(cats.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-
-        {list.isLoading ? <VideoGridSkeleton count={18} /> : (
-          (list.data ?? []).length === 0 ? (
-            <p className="text-white/50 py-20 text-center">No videos here yet.</p>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              {list.data!.map((v, i) => <VideoCard key={v.id} v={v} index={i} />)}
-            </div>
-          )
+        {list.isLoading ? <VideoGridSkeleton count={18} /> : (list.data?.length ?? 0) === 0 ? (
+          <p className="text-white/50 text-center py-24">No videos yet.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {(list.data ?? []).map((v) => <VideoCard key={v.id} v={v} />)}
+          </div>
         )}
       </main>
     </div>

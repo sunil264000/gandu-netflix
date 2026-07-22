@@ -1,12 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Trash2, Plus, Film, HardDrive, Eye } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/AppHeader";
 import { UploadZone } from "@/components/UploadZone";
-import { isOwner, claimOwner } from "@/lib/ext/admin.functions";
 import {
   listVideos, listCategories, deleteVideo, updateVideo,
   createCategory, deleteCategory, storageStats,
@@ -32,8 +30,6 @@ function fmtBytes(b: number) {
 function Admin() {
   const nav = useNavigate();
   const qc = useQueryClient();
-  const _isOwner = useServerFn(isOwner);
-  const _claim = useServerFn(claimOwner);
   const _list = useServerFn(listVideos);
   const _cats = useServerFn(listCategories);
   const _del = useServerFn(deleteVideo);
@@ -42,60 +38,20 @@ function Admin() {
   const _delCat = useServerFn(deleteCategory);
   const _stats = useServerFn(storageStats);
 
-  const [state, setState] = useState<"loading" | "signin" | "claim" | "locked" | "ready">("loading");
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [newCat, setNewCat] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) return setState("signin");
-      try {
-        const r = await _isOwner();
-        if (r.isAdmin) setState("ready");
-        else if (r.anyAdminExists) setState("locked");
-        else setState("claim");
-      } catch { setState("signin"); }
-    })();
-  }, [_isOwner]);
-
-  const vids = useQuery({ queryKey: ["admin:videos"], queryFn: () => _list({ data: { sort: "new", limit: 60 } }), enabled: state === "ready" });
-  const cats = useQuery({ queryKey: ["admin:cats"], queryFn: () => _cats(), enabled: state === "ready" });
-  const stats = useQuery({ queryKey: ["admin:stats"], queryFn: () => _stats(), enabled: state === "ready" });
+  const vids = useQuery({ queryKey: ["admin:videos"], queryFn: () => _list({ data: { sort: "new", limit: 60 } }) });
+  const cats = useQuery({ queryKey: ["admin:cats"], queryFn: () => _cats() });
+  const stats = useQuery({ queryKey: ["admin:stats"], queryFn: () => _stats() });
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["admin:videos"] });
     qc.invalidateQueries({ queryKey: ["admin:stats"] });
   };
 
-  if (state === "loading") return <div className="min-h-screen bg-[#0a0a0a] grid place-items-center text-white/60">Loading...</div>;
-  if (state === "signin") return (
-    <div className="min-h-screen bg-[#0a0a0a] grid place-items-center text-white">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold mb-3">Sign in required</h1>
-        <button onClick={() => nav({ to: "/auth" })} className="px-6 py-3 rounded-full bg-red-500 hover:bg-red-600 font-medium">Sign in</button>
-      </div>
-    </div>
-  );
-  if (state === "claim") return (
-    <div className="min-h-screen bg-[#0a0a0a] grid place-items-center text-white">
-      <div className="text-center max-w-md p-8 rounded-2xl bg-white/5 border border-white/10">
-        <h1 className="text-2xl font-bold mb-2">Claim Ownership</h1>
-        <p className="text-white/60 mb-6 text-sm">No admin exists yet. Claim to become the sole administrator.</p>
-        <button onClick={async () => { await _claim(); setState("ready"); }} className="px-6 py-3 rounded-full bg-red-500 hover:bg-red-600 font-medium shadow-lg shadow-red-500/40">Claim Owner</button>
-      </div>
-    </div>
-  );
-  if (state === "locked") return (
-    <div className="min-h-screen bg-[#0a0a0a] grid place-items-center text-white text-center">
-      <div>
-        <h1 className="text-2xl font-bold mb-2">Admin locked</h1>
-        <p className="text-white/60">Another user has already claimed ownership.</p>
-      </div>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">

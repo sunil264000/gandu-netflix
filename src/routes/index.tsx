@@ -1,8 +1,6 @@
-import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoRow, VideoGridSkeleton } from "@/components/VideoCard";
 import { listVideos, listContinueWatching, listFavorites } from "@/lib/videos.functions";
@@ -26,19 +24,10 @@ function Home() {
   const _continue = useServerFn(listContinueWatching);
   const _favorites = useServerFn(listFavorites);
 
-  const [authed, setAuthed] = useState(false);
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) nav({ to: "/auth" });
-      else setAuthed(true);
-    });
-  }, [nav]);
-
-  const recent = useQuery({ enabled: authed, queryKey: ["home:recent"], queryFn: () => _listVideos({ data: { sort: "new", limit: 12 } }) });
-  const continueW = useQuery({ enabled: authed, queryKey: ["home:continue"], queryFn: () => _continue() });
-  const popular = useQuery({ enabled: authed, queryKey: ["home:popular"], queryFn: () => _listVideos({ data: { sort: "views", limit: 12 } }) });
-  const favs = useQuery({ enabled: authed, queryKey: ["home:favs"], queryFn: () => _favorites() });
+  const recent = useQuery({ queryKey: ["home:recent"], queryFn: () => _listVideos({ data: { sort: "new", limit: 12 } }) });
+  const continueW = useQuery({ queryKey: ["home:continue"], queryFn: () => _continue() });
+  const popular = useQuery({ queryKey: ["home:popular"], queryFn: () => _listVideos({ data: { sort: "views", limit: 12 } }) });
+  const favs = useQuery({ queryKey: ["home:favs"], queryFn: () => _favorites() });
 
   const empty = recent.data && recent.data.length === 0;
 

@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useState } from "react";
 import { Heart, ArrowLeft } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { VideoCard } from "@/components/VideoCard";
@@ -35,14 +34,11 @@ function Watch() {
   const _isFav = useServerFn(isFavorite);
   const _toggleFav = useServerFn(toggleFavorite);
   const [fav, setFav] = useState(false);
-  const [authed, setAuthed] = useState(false);
 
-  useEffect(() => { supabase.auth.getUser().then(({ data }) => { if (!data.user) nav({ to: "/auth" }); else setAuthed(true); }); }, [nav]);
+  const video = useQuery({ queryKey: ["video", id], queryFn: () => _get({ data: { id } }) });
+  const related = useQuery({ queryKey: ["related", video.data?.category_id ?? null], queryFn: () => _related({ data: { sort: "new", categoryId: video.data?.category_id ?? null, limit: 12 } }), enabled: !!video.data });
 
-  const video = useQuery({ enabled: authed, queryKey: ["video", id], queryFn: () => _get({ data: { id } }) });
-  const related = useQuery({ queryKey: ["related", video.data?.category_id ?? null], queryFn: () => _related({ data: { sort: "new", categoryId: video.data?.category_id ?? null, limit: 12 } }), enabled: authed && !!video.data });
-
-  useEffect(() => { if (authed) _isFav({ data: { videoId: id } }).then((r) => setFav(r.favorited)); }, [_isFav, id, authed]);
+  useEffect(() => { _isFav({ data: { videoId: id } }).then((r) => setFav(r.favorited)); }, [_isFav, id]);
   useEffect(() => { if (video.data) _bump({ data: { videoId: id } }).catch(() => {}); }, [video.data?.id, _bump, id]);
 
   const onProgress = useCallback((pos: number, dur: number) => {
