@@ -256,8 +256,10 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
   const lastRef = useRef<{ bytes: number; t: number }>({ bytes: 0, t: Date.now() });
   const [speed, setSpeed] = useState(0); // bytes/sec, smoothed
+  const perJobRef = useRef<Map<string, { bytes: number; t: number; speed: number }>>(new Map());
+  const [, setTick] = useState(0);
   useEffect(() => {
-    if (active.length === 0) { lastRef.current = { bytes: 0, t: Date.now() }; setSpeed(0); return; }
+    if (active.length === 0) { lastRef.current = { bytes: 0, t: Date.now() }; setSpeed(0); perJobRef.current.clear(); return; }
     const id = setInterval(() => {
       const now = Date.now();
       const dt = (now - lastRef.current.t) / 1000;
@@ -267,9 +269,26 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         setSpeed((prev) => prev === 0 ? inst : prev * 0.6 + inst * 0.4);
       }
       lastRef.current = { bytes: doneBytes, t: now };
+
+      for (const j of active) {
+        const cur = (j.file.size * Math.min(100, j.progress)) / 100;
+        const prev = perJobRef.current.get(j.id);
+        if (!prev) {
+          perJobRef.current.set(j.id, { bytes: cur, t: now, speed: 0 });
+        } else {
+          const jdt = (now - prev.t) / 1000;
+          const jdb = cur - prev.bytes;
+          if (jdt > 0) {
+            const inst = Math.max(0, jdb / jdt);
+            const smoothed = prev.speed === 0 ? inst : prev.speed * 0.6 + inst * 0.4;
+            perJobRef.current.set(j.id, { bytes: cur, t: now, speed: smoothed });
+          }
+        }
+      }
+      setTick((n) => n + 1);
     }, 1000);
     return () => clearInterval(id);
-  }, [active.length, doneBytes]);
+  }, [active, doneBytes]);
 
   const fmtMB = (b: number) => (b / 1024 / 1024).toFixed(1);
   const eta = speed > 0 ? Math.max(0, (totalBytes - doneBytes) / speed) : 0;
