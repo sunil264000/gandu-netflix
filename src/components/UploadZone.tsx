@@ -1,7 +1,34 @@
 import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import * as tus from "tus-js-client";
 import { Upload, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { createVideoRecord, getUploadUrl } from "@/lib/videos.functions";
+import { createVideoRecord } from "@/lib/videos.functions";
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+
+function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?: (pct: number) => void) {
+  return new Promise<void>((resolve, reject) => {
+    const upload = new tus.Upload(file, {
+      endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
+      retryDelays: [0, 3000, 5000, 10000, 20000],
+      headers: { authorization: `Bearer ${SUPABASE_KEY}`, "x-upsert": "true", apikey: SUPABASE_KEY },
+      uploadDataDuringCreation: true,
+      removeFingerprintOnSuccess: true,
+      metadata: {
+        bucketName: bucket,
+        objectName: path,
+        contentType: (file as File).type || "application/octet-stream",
+        cacheControl: "3600",
+      },
+      chunkSize: 6 * 1024 * 1024,
+      onError: (e) => reject(e),
+      onProgress: (sent, total) => onProgress?.((sent / total) * 100),
+      onSuccess: () => resolve(),
+    });
+    upload.start();
+  });
+}
 
 type Job = {
   id: string;
@@ -44,7 +71,6 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const _create = useServerFn(createVideoRecord);
-  const _getUrl = useServerFn(getUploadUrl);
 
   const updateJob = (id: string, patch: Partial<Job>) =>
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
@@ -63,28 +89,13 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       if (meta.blob) {
         thumbnailPath = `${uid}.jpg`;
         try {
-          const t = await _getUrl({ data: { path: thumbnailPath, bucket: "thumbnails" } });
-          const r = await fetch(t.signedUrl, { method: "PUT", headers: { "Content-Type": "image/jpeg", "x-upsert": "false" }, body: meta.blob });
-          if (!r.ok) thumbnailPath = undefined;
+          await tusUpload("thumbnails", thumbnailPath, meta.blob);
         } catch { thumbnailPath = undefined; }
       }
 
       updateJob(job.id, { status: "uploading", message: "Uploading...", progress: 0 });
 
-      const signed = await _getUrl({ data: { path: storagePath, bucket: "videos" } });
-
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("PUT", signed.signedUrl);
-        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-        xhr.setRequestHeader("x-upsert", "false");
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) updateJob(job.id, { progress: (e.loaded / e.total) * 100 });
-        };
-        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`upload_${xhr.status}`));
-        xhr.onerror = () => reject(new Error("network"));
-        xhr.send(file);
-      });
+      await tusUpload("videos", storagePath, file, (pct) => updateJob(job.id, { progress: pct }));
 
       updateJob(job.id, { status: "saving", message: "Finalizing...", progress: 100 });
 
