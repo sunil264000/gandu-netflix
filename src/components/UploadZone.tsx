@@ -224,6 +224,8 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       const msg = (e as Error).message || "Upload failed";
       updateJob(job.id, { status: "error", message: msg });
       updateUploadJob(job.id, { status: "error", message: msg });
+    } finally {
+      cancellersRef.current.delete(job.id);
     }
   }, [_create, categoryId, onDone]);
 
