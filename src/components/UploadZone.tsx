@@ -256,7 +256,8 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
   const lastRef = useRef<{ bytes: number; t: number }>({ bytes: 0, t: Date.now() });
   const [speed, setSpeed] = useState(0); // bytes/sec, smoothed
-  const perJobRef = useRef<Map<string, { bytes: number; t: number; speed: number }>>(new Map());
+  const perJobRef = useRef<Map<string, { bytes: number; t: number; speed: number; history: number[] }>>(new Map());
+  const SPARK_MAX = 40;
   const [, setTick] = useState(0);
   useEffect(() => {
     if (active.length === 0) { lastRef.current = { bytes: 0, t: Date.now() }; setSpeed(0); perJobRef.current.clear(); return; }
@@ -274,14 +275,15 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         const cur = (j.file.size * Math.min(100, j.progress)) / 100;
         const prev = perJobRef.current.get(j.id);
         if (!prev) {
-          perJobRef.current.set(j.id, { bytes: cur, t: now, speed: 0 });
+          perJobRef.current.set(j.id, { bytes: cur, t: now, speed: 0, history: [0] });
         } else {
           const jdt = (now - prev.t) / 1000;
           const jdb = cur - prev.bytes;
           if (jdt > 0) {
             const inst = Math.max(0, jdb / jdt);
             const smoothed = prev.speed === 0 ? inst : prev.speed * 0.6 + inst * 0.4;
-            perJobRef.current.set(j.id, { bytes: cur, t: now, speed: smoothed });
+            const history = [...prev.history, smoothed].slice(-SPARK_MAX);
+            perJobRef.current.set(j.id, { bytes: cur, t: now, speed: smoothed, history });
           }
         }
       }
@@ -297,6 +299,27 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
     const m = Math.floor(s / 60), sec = Math.floor(s % 60);
     return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
   };
+  const Sparkline = ({ data, width = 90, height = 28 }: { data: number[]; width?: number; height?: number }) => {
+    if (!data.length) return null;
+    const max = Math.max(...data, 1);
+    const step = data.length > 1 ? width / (data.length - 1) : width;
+    const pts = data.map((v, i) => `${(i * step).toFixed(1)},${(height - (v / max) * height).toFixed(1)}`);
+    const line = `M${pts.join(" L")}`;
+    const area = `${line} L${width},${height} L0,${height} Z`;
+    return (
+      <svg width={width} height={height} className="overflow-visible">
+        <defs>
+          <linearGradient id="sparkFill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="rgb(248 113 113)" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="rgb(248 113 113)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#sparkFill)" />
+        <path d={line} fill="none" stroke="rgb(248 113 113)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    );
+  };
+
 
   return (
     <div>
@@ -395,9 +418,14 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                     </p>
                   </div>
                   {showStats && (
-                    <div className="text-right text-xs text-white/70 tabular-nums whitespace-nowrap">
-                      <div className="text-white font-medium">{j.progress.toFixed(1)}%</div>
-                      <div>{(jSpeed / 1024 / 1024).toFixed(2)} MB/s · ETA {fmtETA(jEta)}</div>
+                    <div className="flex items-center gap-3">
+                      <div className="hidden sm:block" title="Upload speed trend">
+                        <Sparkline data={(jStats?.history ?? []).map((b) => b / 1024 / 1024)} />
+                      </div>
+                      <div className="text-right text-xs text-white/70 tabular-nums whitespace-nowrap">
+                        <div className="text-white font-medium">{j.progress.toFixed(1)}%</div>
+                        <div>{(jSpeed / 1024 / 1024).toFixed(2)} MB/s · ETA {fmtETA(jEta)}</div>
+                      </div>
                     </div>
                   )}
                   {j.status === "done" && (
