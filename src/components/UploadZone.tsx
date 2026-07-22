@@ -119,9 +119,18 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
   const _createCat = useServerFn(createCategory);
   const _listCats = useServerFn(listCategories);
   const qc = useQueryClient();
+  const cancellersRef = useRef<Map<string, Canceller>>(new Map());
 
   const updateJob = (id: string, patch: Partial<Job>) =>
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
+
+  const cancelJob = (id: string) => {
+    const c = cancellersRef.current.get(id);
+    if (c) { c.cancelled = true; c.abort?.(); }
+    updateJob(id, { status: "error", message: "Cancelled" });
+    updateUploadJob(id, { status: "error", message: "Cancelled", progress: 0 });
+    cancellersRef.current.delete(id);
+  };
 
   const processFile = useCallback(async (job: Job) => {
     // Server tracker heartbeat state (throttled remote update)
