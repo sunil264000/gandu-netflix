@@ -497,8 +497,18 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                       <div>{showStats ? `${(jSpeed / 1024 / 1024).toFixed(2)} MB/s` : "—"}</div>
                     </div>
                   )}
-                  {j.status === "done" && (
-                    <button onClick={() => setJobs((p) => p.filter((x) => x.id !== j.id))} className="p-1 text-white/40 hover:text-white">
+                  {isActive && (
+                    <button
+                      onClick={() => cancelJob(j.id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-500/15 hover:bg-red-500/30 text-red-300 text-xs font-medium border border-red-500/30"
+                      title="Cancel upload"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Cancel
+                    </button>
+                  )}
+                  {(j.status === "done" || j.status === "error") && (
+                    <button onClick={() => setJobs((p) => p.filter((x) => x.id !== j.id))} className="p-1 text-white/40 hover:text-white" title="Remove">
                       <X className="w-4 h-4" />
                     </button>
                   )}
