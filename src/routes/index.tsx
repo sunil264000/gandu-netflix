@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoRow, VideoGridSkeleton } from "@/components/VideoCard";
 import { listVideos, listContinueWatching, listFavorites } from "@/lib/videos.functions";
+import { useLiveVideos } from "@/hooks/useLiveVideos";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -28,6 +29,8 @@ function Home() {
   const continueW = useQuery({ queryKey: ["home:continue"], queryFn: () => _continue() });
   const popular = useQuery({ queryKey: ["home:popular"], queryFn: () => _listVideos({ data: { sort: "views", limit: 12 } }) });
   const favs = useQuery({ queryKey: ["home:favs"], queryFn: () => _favorites() });
+
+  useLiveVideos([["home:recent"], ["home:popular"], ["home:continue"], ["home:favs"]]);
 
   const empty = recent.data && recent.data.length === 0;
 

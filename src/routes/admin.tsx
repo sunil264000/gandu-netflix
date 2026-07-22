@@ -9,6 +9,7 @@ import {
   listVideos, listCategories, deleteVideo, updateVideo,
   createCategory, deleteCategory, storageStats,
 } from "@/lib/videos.functions";
+import { useLiveVideos } from "@/hooks/useLiveVideos";
 
 export const Route = createFileRoute("/admin")({
   component: Admin, ssr: false,
@@ -46,6 +47,8 @@ function Admin() {
   const vids = useQuery({ queryKey: ["admin:videos"], queryFn: () => _list({ data: { sort: "new", limit: 60 } }) });
   const cats = useQuery({ queryKey: ["admin:cats"], queryFn: () => _cats() });
   const stats = useQuery({ queryKey: ["admin:stats"], queryFn: () => _stats() });
+
+  useLiveVideos([["admin:videos"], ["admin:stats"]]);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["admin:videos"] });
