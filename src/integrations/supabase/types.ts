@@ -498,6 +498,8 @@ export type Database = {
       videos: {
         Row: {
           category_id: string | null
+          chunk_count: number | null
+          chunk_size_bytes: number | null
           created_at: string
           description: string | null
           duration_sec: number | null
@@ -510,12 +512,15 @@ export type Database = {
           thumbnail_path: string | null
           title: string
           updated_at: string
+          upload_mode: string
           uploaded_by: string | null
           view_count: number
           width: number | null
         }
         Insert: {
           category_id?: string | null
+          chunk_count?: number | null
+          chunk_size_bytes?: number | null
           created_at?: string
           description?: string | null
           duration_sec?: number | null
@@ -528,12 +533,15 @@ export type Database = {
           thumbnail_path?: string | null
           title: string
           updated_at?: string
+          upload_mode?: string
           uploaded_by?: string | null
           view_count?: number
           width?: number | null
         }
         Update: {
           category_id?: string | null
+          chunk_count?: number | null
+          chunk_size_bytes?: number | null
           created_at?: string
           description?: string | null
           duration_sec?: number | null
@@ -546,6 +554,7 @@ export type Database = {
           thumbnail_path?: string | null
           title?: string
           updated_at?: string
+          upload_mode?: string
           uploaded_by?: string | null
           view_count?: number
           width?: number | null
