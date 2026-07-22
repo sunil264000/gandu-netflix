@@ -12,8 +12,10 @@ function tusUpload(bucket: string, path: string, file: File | Blob, onProgress?:
     const upload = new tus.Upload(file, {
       endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
       retryDelays: [0, 3000, 5000, 10000, 20000],
-      headers: { authorization: `Bearer ${SUPABASE_KEY}`, "x-upsert": "true", apikey: SUPABASE_KEY },
-      uploadDataDuringCreation: true,
+      headers: { Authorization: `Bearer ${SUPABASE_KEY}`, "x-upsert": "true", apikey: SUPABASE_KEY },
+      // Keep the initial POST body empty. Sending data during creation can make
+      // large browser uploads fail with a 413 before chunked PATCH uploads start.
+      uploadDataDuringCreation: false,
       removeFingerprintOnSuccess: true,
       metadata: {
         bucketName: bucket,
