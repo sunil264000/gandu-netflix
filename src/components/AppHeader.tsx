@@ -1,19 +1,11 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { Search, Home, Library, Shield, LogOut, Film } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
+import { Search, Home, Library, Shield, Film } from "lucide-react";
 
 export function AppHeader() {
   const nav = useNavigate();
   const [q, setQ] = useState("");
-  const [email, setEmail] = useState<string | null>(null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setEmail(s?.user?.email ?? null));
-    return () => sub.subscription.unsubscribe();
-  }, []);
 
   const onSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,17 +44,6 @@ export function AppHeader() {
             />
           </div>
         </form>
-
-        <div className="flex items-center gap-3">
-          {email && <span className="text-xs text-white/50 hidden md:block">{email}</span>}
-          <button
-            onClick={async () => { await supabase.auth.signOut(); nav({ to: "/auth" }); }}
-            title="Sign out"
-            className="w-9 h-9 grid place-items-center rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
       </div>
     </header>
   );
