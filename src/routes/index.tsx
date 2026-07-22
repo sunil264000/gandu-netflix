@@ -30,6 +30,8 @@ function Home() {
   const popular = useQuery({ queryKey: ["home:popular"], queryFn: () => _listVideos({ data: { sort: "views", limit: 12 } }) });
   const favs = useQuery({ queryKey: ["home:favs"], queryFn: () => _favorites() });
 
+  useLiveVideos([["home:recent"], ["home:popular"], ["home:continue"], ["home:favs"]]);
+
   const empty = recent.data && recent.data.length === 0;
 
   return (
