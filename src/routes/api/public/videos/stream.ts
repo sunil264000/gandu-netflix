@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
-const PARALLEL_FETCHES = 8;
+// Tuned for slow connections (~10 Mbps): small responses so playback starts
+// almost immediately and the browser can seek without over-fetching.
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024; // 4 MB per range response
+const PARALLEL_FETCHES = 3;
 const SIGNED_URL_TTL = 60 * 60 * 6;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
 
