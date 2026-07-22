@@ -368,7 +368,14 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
             const jSpeed = jStats?.speed ?? 0;
             const jDone = (j.file.size * Math.min(100, j.progress)) / 100;
             const jEta = jSpeed > 0 ? Math.max(0, (j.file.size - jDone) / jSpeed) : 0;
+            const isActive = j.status !== "done" && j.status !== "error";
             const showStats = j.status === "uploading" || j.status === "saving";
+            const statusLabel =
+              j.status === "queued" ? "Queued" :
+              j.status === "thumb" ? "Generating thumbnail" :
+              j.status === "uploading" ? "Uploading" :
+              j.status === "saving" ? "Finalizing" :
+              j.status === "done" ? "Done" : "Error";
             return (
               <div key={j.id} className="p-3 rounded-xl bg-white/5 border border-white/10">
                 <div className="flex items-center gap-3">
@@ -382,7 +389,10 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                       {j.seriesLabel ? <span className="text-red-400 mr-1.5">[{j.seriesLabel}]</span> : null}
                       {j.file.name}
                     </p>
-                    <p className="text-xs text-white/50">{j.message ?? j.status} — {fmtMB(j.file.size)} MB</p>
+                    <p className="text-xs text-white/50">
+                      <span className="text-red-300">{statusLabel}</span>
+                      {j.message && j.status === "error" ? ` — ${j.message}` : ""} · {fmtMB(j.file.size)} MB
+                    </p>
                   </div>
                   {showStats && (
                     <div className="text-right text-xs text-white/70 tabular-nums whitespace-nowrap">
@@ -396,14 +406,18 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                     </button>
                   )}
                 </div>
-                {showStats && (
+                {isActive && (
                   <>
-                    <div className="mt-2 h-1.5 bg-white/10 rounded overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-red-500 to-red-400 transition-all" style={{ width: `${j.progress}%` }} />
+                    <div className="mt-2 h-1.5 bg-white/10 rounded overflow-hidden relative">
+                      {showStats ? (
+                        <div className="h-full bg-gradient-to-r from-red-500 to-red-400 transition-all" style={{ width: `${j.progress}%` }} />
+                      ) : (
+                        <div className="h-full w-1/3 bg-gradient-to-r from-red-500/60 to-red-400/60 animate-[indeterminate_1.4s_ease-in-out_infinite]" />
+                      )}
                     </div>
                     <div className="mt-1 flex justify-between text-[11px] text-white/50 tabular-nums">
-                      <span>{fmtMB(jDone)} / {fmtMB(j.file.size)} MB</span>
-                      <span>{j.status === "saving" ? "Finalizing…" : "Uploading"}</span>
+                      <span>{showStats ? `${fmtMB(jDone)} / ${fmtMB(j.file.size)} MB` : statusLabel + "…"}</span>
+                      <span>{showStats ? (j.status === "saving" ? "Finalizing…" : "Live") : ""}</span>
                     </div>
                   </>
                 )}
