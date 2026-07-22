@@ -256,7 +256,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
   const lastRef = useRef<{ bytes: number; t: number }>({ bytes: 0, t: Date.now() });
   const [speed, setSpeed] = useState(0); // bytes/sec, smoothed
-  const perJobRef = useRef<Map<string, { bytes: number; t: number; speed: number; history: number[] }>>(new Map());
+  const perJobRef = useRef<Map<string, { bytes: number; t: number; speed: number; history: number[]; startedAt: number }>>(new Map());
   const SPARK_MAX = 40;
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -275,7 +275,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         const cur = (j.file.size * Math.min(100, j.progress)) / 100;
         const prev = perJobRef.current.get(j.id);
         if (!prev) {
-          perJobRef.current.set(j.id, { bytes: cur, t: now, speed: 0, history: [0] });
+          perJobRef.current.set(j.id, { bytes: cur, t: now, speed: 0, history: [0], startedAt: now });
         } else {
           const jdt = (now - prev.t) / 1000;
           const jdb = cur - prev.bytes;
@@ -283,7 +283,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
             const inst = Math.max(0, jdb / jdt);
             const smoothed = prev.speed === 0 ? inst : prev.speed * 0.6 + inst * 0.4;
             const history = [...prev.history, smoothed].slice(-SPARK_MAX);
-            perJobRef.current.set(j.id, { bytes: cur, t: now, speed: smoothed, history });
+            perJobRef.current.set(j.id, { bytes: cur, t: now, speed: smoothed, history, startedAt: prev.startedAt });
           }
         }
       }
@@ -319,6 +319,13 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       </svg>
     );
   };
+  const Stat = ({ label, value }: { label: string; value: string }) => (
+    <div className="flex flex-col">
+      <span className="text-[10px] uppercase tracking-wide text-white/40">{label}</span>
+      <span className="text-xs text-white tabular-nums">{value}</span>
+    </div>
+  );
+
 
 
   return (
@@ -391,6 +398,9 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
             const jSpeed = jStats?.speed ?? 0;
             const jDone = (j.file.size * Math.min(100, j.progress)) / 100;
             const jEta = jSpeed > 0 ? Math.max(0, (j.file.size - jDone) / jSpeed) : 0;
+            const jElapsed = jStats ? (Date.now() - jStats.startedAt) / 1000 : 0;
+            const jAvg = jElapsed > 0 ? jDone / jElapsed : 0;
+            const jPeak = jStats?.history?.length ? Math.max(...jStats.history) : 0;
             const isActive = j.status !== "done" && j.status !== "error";
             const showStats = j.status === "uploading" || j.status === "saving";
             const statusLabel =
@@ -417,15 +427,10 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                       {j.message && j.status === "error" ? ` — ${j.message}` : ""} · {fmtMB(j.file.size)} MB
                     </p>
                   </div>
-                  {showStats && (
-                    <div className="flex items-center gap-3">
-                      <div className="hidden sm:block" title="Upload speed trend">
-                        <Sparkline data={(jStats?.history ?? []).map((b) => b / 1024 / 1024)} />
-                      </div>
-                      <div className="text-right text-xs text-white/70 tabular-nums whitespace-nowrap">
-                        <div className="text-white font-medium">{j.progress.toFixed(1)}%</div>
-                        <div>{(jSpeed / 1024 / 1024).toFixed(2)} MB/s · ETA {fmtETA(jEta)}</div>
-                      </div>
+                  {isActive && (
+                    <div className="text-right text-xs text-white/70 tabular-nums whitespace-nowrap">
+                      <div className="text-white font-semibold text-sm">{j.progress.toFixed(1)}%</div>
+                      <div>{showStats ? `${(jSpeed / 1024 / 1024).toFixed(2)} MB/s` : "—"}</div>
                     </div>
                   )}
                   {j.status === "done" && (
@@ -443,10 +448,21 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                         <div className="h-full w-1/3 bg-gradient-to-r from-red-500/60 to-red-400/60 animate-[indeterminate_1.4s_ease-in-out_infinite]" />
                       )}
                     </div>
-                    <div className="mt-1 flex justify-between text-[11px] text-white/50 tabular-nums">
-                      <span>{showStats ? `${fmtMB(jDone)} / ${fmtMB(j.file.size)} MB` : statusLabel + "…"}</span>
-                      <span>{showStats ? (j.status === "saving" ? "Finalizing…" : "Live") : ""}</span>
-                    </div>
+                    {showStats && (
+                      <div className="mt-2 grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
+                        <Stat label="Uploaded" value={`${fmtMB(jDone)} / ${fmtMB(j.file.size)} MB`} />
+                        <Stat label="Speed" value={`${(jSpeed / 1024 / 1024).toFixed(2)} MB/s`} />
+                        <Stat label="Avg" value={`${(jAvg / 1024 / 1024).toFixed(2)} MB/s`} />
+                        <Stat label="Elapsed / ETA" value={`${fmtETA(jElapsed)} · ${fmtETA(jEta)}`} />
+                        <div className="col-span-2 sm:col-span-1 flex flex-col items-end">
+                          <span className="text-[10px] uppercase tracking-wide text-white/40">Trend · peak {(jPeak / 1024 / 1024).toFixed(1)} MB/s</span>
+                          <Sparkline data={(jStats?.history ?? []).map((b) => b / 1024 / 1024)} width={120} height={30} />
+                        </div>
+                      </div>
+                    )}
+                    {!showStats && (
+                      <div className="mt-1 text-[11px] text-white/50">{statusLabel}…</div>
+                    )}
                   </>
                 )}
               </div>
