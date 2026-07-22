@@ -418,9 +418,14 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                     </p>
                   </div>
                   {showStats && (
-                    <div className="text-right text-xs text-white/70 tabular-nums whitespace-nowrap">
-                      <div className="text-white font-medium">{j.progress.toFixed(1)}%</div>
-                      <div>{(jSpeed / 1024 / 1024).toFixed(2)} MB/s · ETA {fmtETA(jEta)}</div>
+                    <div className="flex items-center gap-3">
+                      <div className="hidden sm:block" title="Upload speed trend">
+                        <Sparkline data={(jStats?.history ?? []).map((b) => b / 1024 / 1024)} />
+                      </div>
+                      <div className="text-right text-xs text-white/70 tabular-nums whitespace-nowrap">
+                        <div className="text-white font-medium">{j.progress.toFixed(1)}%</div>
+                        <div>{(jSpeed / 1024 / 1024).toFixed(2)} MB/s · ETA {fmtETA(jEta)}</div>
+                      </div>
                     </div>
                   )}
                   {j.status === "done" && (
