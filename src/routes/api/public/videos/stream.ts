@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-const MAX_RESPONSE_BYTES = 24 * 1024 * 1024;
-const PARALLEL_FETCHES = 4;
+const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
+const PARALLEL_FETCHES = 8;
+const SIGNED_URL_TTL = 60 * 60 * 6;
+const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
 
 type StreamVideo = {
   id: string;
@@ -13,6 +15,11 @@ type StreamVideo = {
   chunk_count: number | null;
 };
 
+// In-memory caches (per worker isolate) — dramatically cuts DB + signing round-trips
+const videoCache = new Map<string, { v: StreamVideo; exp: number }>();
+const urlCache = new Map<string, { url: string; exp: number }>();
+const VIDEO_CACHE_MS = 60_000;
+
 export const Route = createFileRoute("/api/public/videos/stream")({
   server: {
     handlers: {
@@ -22,26 +29,42 @@ export const Route = createFileRoute("/api/public/videos/stream")({
   },
 });
 
-async function handleStream(request: Request, headOnly = false) {
-  const id = new URL(request.url).searchParams.get("id") ?? "";
-  if (!isUuid(id)) return new Response("Bad video id", { status: 400 });
-
+async function getVideo(id: string): Promise<StreamVideo | null> {
+  const now = Date.now();
+  const hit = videoCache.get(id);
+  if (hit && hit.exp > now) return hit.v;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data, error } = await supabaseAdmin
+  const { data } = await supabaseAdmin
     .from("videos")
     .select("id,storage_path,mime_type,size_bytes,upload_mode,chunk_size_bytes,chunk_count")
     .eq("id", id)
     .maybeSingle();
+  if (!data) return null;
+  videoCache.set(id, { v: data as StreamVideo, exp: now + VIDEO_CACHE_MS });
+  return data as StreamVideo;
+}
 
-  if (error) return new Response("Video lookup failed", { status: 500 });
-  if (!data) return new Response("Video not found", { status: 404 });
+async function getSignedUrl(path: string): Promise<string | null> {
+  const now = Date.now();
+  const hit = urlCache.get(path);
+  if (hit && hit.exp > now) return hit.url;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin.storage.from("videos").createSignedUrl(path, SIGNED_URL_TTL);
+  if (!data?.signedUrl) return null;
+  urlCache.set(path, { url: data.signedUrl, exp: now + SIGNED_URL_CACHE_MS });
+  return data.signedUrl;
+}
 
-  const video = data as StreamVideo;
+async function handleStream(request: Request, headOnly = false) {
+  const id = new URL(request.url).searchParams.get("id") ?? "";
+  if (!isUuid(id)) return new Response("Bad video id", { status: 400 });
+
+  const video = await getVideo(id);
+  if (!video) return new Response("Video not found", { status: 404 });
+
   if (video.upload_mode !== "chunked") {
-    const { data: signed } = await supabaseAdmin.storage.from("videos").createSignedUrl(video.storage_path, 60 * 60 * 6);
-    return signed?.signedUrl
-      ? Response.redirect(signed.signedUrl, 302)
-      : new Response("Stream URL failed", { status: 500 });
+    const signed = await getSignedUrl(video.storage_path);
+    return signed ? Response.redirect(signed, 302) : new Response("Stream URL failed", { status: 500 });
   }
 
   const total = Number(video.size_bytes);
@@ -61,57 +84,61 @@ async function handleStream(request: Request, headOnly = false) {
     range.end = Math.min(range.start + MAX_RESPONSE_BYTES - 1, total - 1);
   }
 
-  const status = 206;
   const contentLength = range.end - range.start + 1;
   const headers = new Headers({
     "accept-ranges": "bytes",
     "content-type": video.mime_type || "application/octet-stream",
     "content-length": String(contentLength),
     "cache-control": "public, max-age=31536000, immutable",
+    "content-range": `bytes ${range.start}-${range.end}/${total}`,
   });
-  if (status === 206) headers.set("content-range", `bytes ${range.start}-${range.end}/${total}`);
-  if (headOnly) return new Response(null, { status, headers });
+  if (headOnly) return new Response(null, { status: 206, headers });
 
   const firstPart = Math.floor(range.start / chunkSize);
   const lastPart = Math.floor(range.end / chunkSize);
-
-  // Pre-fetch all needed chunks in parallel with bounded concurrency
   const partIndices: number[] = [];
   for (let p = firstPart; p <= lastPart; p += 1) partIndices.push(p);
+
+  // Fetch only the exact bytes needed from each chunk using HTTP Range against signed URLs.
+  // This avoids downloading whole 40MB chunks just to slice a few KB out.
+  const fetchPartRange = async (part: number): Promise<Uint8Array> => {
+    const partPath = `${video.storage_path}.part-${String(part).padStart(6, "0")}`;
+    const signed = await getSignedUrl(partPath);
+    if (!signed) throw new Error(`sign failed for part ${part}`);
+
+    const partStartByte = part * chunkSize;
+    const sliceStart = Math.max(0, range.start - partStartByte);
+    // For inner parts we always take the whole chunk; only first/last are trimmed
+    const partEndByte = partStartByte + chunkSize - 1;
+    const sliceEndAbs = Math.min(partEndByte, range.end);
+    const sliceEnd = sliceEndAbs - partStartByte;
+
+    const res = await fetch(signed, {
+      headers: { range: `bytes=${sliceStart}-${sliceEnd}` },
+    });
+    if (!res.ok && res.status !== 206 && res.status !== 200) {
+      throw new Error(`chunk ${part} fetch ${res.status}`);
+    }
+    const buf = await res.arrayBuffer();
+    return new Uint8Array(buf);
+  };
 
   const body = new ReadableStream({
     async start(controller) {
       try {
-        const pending = new Map<number, Promise<Blob>>();
-        const fetchPart = (part: number) => {
-          const partPath = `${video.storage_path}.part-${String(part).padStart(6, "0")}`;
-          return supabaseAdmin.storage.from("videos").download(partPath).then(({ data: blob, error: e }) => {
-            if (e || !blob) throw e ?? new Error("missing chunk");
-            return blob;
-          });
+        const pending = new Map<number, Promise<Uint8Array>>();
+        const kick = (idx: number) => {
+          if (idx >= partIndices.length) return;
+          pending.set(partIndices[idx], fetchPartRange(partIndices[idx]));
         };
-
-        // Kick off initial parallel window
-        for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) {
-          pending.set(partIndices[i], fetchPart(partIndices[i]));
-        }
+        for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) kick(i);
 
         for (let i = 0; i < partIndices.length; i += 1) {
           const part = partIndices[i];
-          const blob = await pending.get(part)!;
+          const bytes = await pending.get(part)!;
           pending.delete(part);
-
-          // Queue next
-          const nextIdx = i + PARALLEL_FETCHES;
-          if (nextIdx < partIndices.length) {
-            pending.set(partIndices[nextIdx], fetchPart(partIndices[nextIdx]));
-          }
-
-          const partStartByte = part * chunkSize;
-          const sliceStart = Math.max(0, range.start - partStartByte);
-          const sliceEnd = Math.min(blob.size, range.end - partStartByte + 1);
-          const bytes = await blob.slice(sliceStart, sliceEnd).arrayBuffer();
-          controller.enqueue(new Uint8Array(bytes));
+          kick(i + PARALLEL_FETCHES);
+          controller.enqueue(bytes);
         }
         controller.close();
       } catch (streamError) {
@@ -120,7 +147,7 @@ async function handleStream(request: Request, headOnly = false) {
     },
   });
 
-  return new Response(body, { status, headers });
+  return new Response(body, { status: 206, headers });
 }
 
 function parseRange(header: string | null, total: number) {
