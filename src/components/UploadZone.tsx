@@ -319,6 +319,13 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       </svg>
     );
   };
+  const Stat = ({ label, value }: { label: string; value: string }) => (
+    <div className="flex flex-col">
+      <span className="text-[10px] uppercase tracking-wide text-white/40">{label}</span>
+      <span className="text-xs text-white tabular-nums">{value}</span>
+    </div>
+  );
+
 
 
   return (
