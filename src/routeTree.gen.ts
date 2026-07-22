@@ -16,6 +16,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WatchIdRouteImport } from './routes/watch.$id'
+import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicVideosStreamRouteImport } from './routes/api/public/videos/stream'
 import { Route as ApiPublicExtTokenRouteImport } from './routes/api/public/ext/token'
 import { Route as ApiPublicExtHeartbeatRouteImport } from './routes/api/public/ext/heartbeat'
@@ -57,6 +58,11 @@ const WatchIdRoute = WatchIdRouteImport.update({
   path: '/watch/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicHealthRoute = ApiPublicHealthRouteImport.update({
+  id: '/api/public/health',
+  path: '/api/public/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicVideosStreamRoute = ApiPublicVideosStreamRouteImport.update({
   id: '/api/public/videos/stream',
   path: '/api/public/videos/stream',
@@ -91,6 +97,7 @@ export interface FileRoutesByFullPath {
   '/search': typeof SearchRoute
   '/uploads': typeof UploadsRoute
   '/watch/$id': typeof WatchIdRoute
+  '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/search': typeof SearchRoute
   '/uploads': typeof UploadsRoute
   '/watch/$id': typeof WatchIdRoute
+  '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/search': typeof SearchRoute
   '/uploads': typeof UploadsRoute
   '/watch/$id': typeof WatchIdRoute
+  '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/uploads'
     | '/watch/$id'
+    | '/api/public/health'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -150,6 +160,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/uploads'
     | '/watch/$id'
+    | '/api/public/health'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -164,6 +175,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/uploads'
     | '/watch/$id'
+    | '/api/public/health'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -179,6 +191,7 @@ export interface RootRouteChildren {
   SearchRoute: typeof SearchRoute
   UploadsRoute: typeof UploadsRoute
   WatchIdRoute: typeof WatchIdRoute
+  ApiPublicHealthRoute: typeof ApiPublicHealthRoute
   ApiPublicExtActivateRoute: typeof ApiPublicExtActivateRoute
   ApiPublicExtExecRoute: typeof ApiPublicExtExecRoute
   ApiPublicExtHeartbeatRoute: typeof ApiPublicExtHeartbeatRoute
@@ -237,6 +250,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WatchIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/health': {
+      id: '/api/public/health'
+      path: '/api/public/health'
+      fullPath: '/api/public/health'
+      preLoaderRoute: typeof ApiPublicHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/videos/stream': {
       id: '/api/public/videos/stream'
       path: '/api/public/videos/stream'
@@ -283,6 +303,7 @@ const rootRouteChildren: RootRouteChildren = {
   SearchRoute: SearchRoute,
   UploadsRoute: UploadsRoute,
   WatchIdRoute: WatchIdRoute,
+  ApiPublicHealthRoute: ApiPublicHealthRoute,
   ApiPublicExtActivateRoute: ApiPublicExtActivateRoute,
   ApiPublicExtExecRoute: ApiPublicExtExecRoute,
   ApiPublicExtHeartbeatRoute: ApiPublicExtHeartbeatRoute,

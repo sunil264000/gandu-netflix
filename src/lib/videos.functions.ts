@@ -163,9 +163,15 @@ export const bumpView = createServerFn({ method: "POST" })
   .inputValidator((i: { videoId: string }) => z.object({ videoId: z.string().uuid() }).parse(i))
   .handler(async ({ data }) => {
     const sb = await admin();
-    const { data: cur } = await sb.from("videos").select("view_count").eq("id", data.videoId).maybeSingle();
-    const next = (cur?.view_count ?? 0) + 1;
-    await sb.from("videos").update({ view_count: next }).eq("id", data.videoId);
+    // Atomic increment via SQL — avoids the read-then-write race that would
+    // undercount views when two watchers hit the same video simultaneously.
+    const { error } = await sb.rpc("increment_video_view_admin" as never, { _video_id: data.videoId });
+    if (error) {
+      // Fallback to non-atomic increment if the RPC isn't deployed yet.
+      const { data: cur } = await sb.from("videos").select("view_count").eq("id", data.videoId).maybeSingle();
+      const next = (cur?.view_count ?? 0) + 1;
+      await sb.from("videos").update({ view_count: next }).eq("id", data.videoId);
+    }
     return { ok: true };
   });
 
