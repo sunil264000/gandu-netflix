@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as UploadsRouteImport } from './routes/uploads'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -21,6 +22,11 @@ import { Route as ApiPublicExtHeartbeatRouteImport } from './routes/api/public/e
 import { Route as ApiPublicExtExecRouteImport } from './routes/api/public/ext/exec'
 import { Route as ApiPublicExtActivateRouteImport } from './routes/api/public/ext/activate'
 
+const UploadsRoute = UploadsRouteImport.update({
+  id: '/uploads',
+  path: '/uploads',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
   path: '/search',
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/library': typeof LibraryRoute
   '/search': typeof SearchRoute
+  '/uploads': typeof UploadsRoute
   '/watch/$id': typeof WatchIdRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
@@ -96,6 +103,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/library': typeof LibraryRoute
   '/search': typeof SearchRoute
+  '/uploads': typeof UploadsRoute
   '/watch/$id': typeof WatchIdRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
@@ -110,6 +118,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/library': typeof LibraryRoute
   '/search': typeof SearchRoute
+  '/uploads': typeof UploadsRoute
   '/watch/$id': typeof WatchIdRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
@@ -125,6 +134,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/library'
     | '/search'
+    | '/uploads'
     | '/watch/$id'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
@@ -138,6 +148,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/library'
     | '/search'
+    | '/uploads'
     | '/watch/$id'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
@@ -151,6 +162,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/library'
     | '/search'
+    | '/uploads'
     | '/watch/$id'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
@@ -165,6 +177,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   LibraryRoute: typeof LibraryRoute
   SearchRoute: typeof SearchRoute
+  UploadsRoute: typeof UploadsRoute
   WatchIdRoute: typeof WatchIdRoute
   ApiPublicExtActivateRoute: typeof ApiPublicExtActivateRoute
   ApiPublicExtExecRoute: typeof ApiPublicExtExecRoute
@@ -175,6 +188,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/uploads': {
+      id: '/uploads'
+      path: '/uploads'
+      fullPath: '/uploads'
+      preLoaderRoute: typeof UploadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/search': {
       id: '/search'
       path: '/search'
@@ -261,6 +281,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   LibraryRoute: LibraryRoute,
   SearchRoute: SearchRoute,
+  UploadsRoute: UploadsRoute,
   WatchIdRoute: WatchIdRoute,
   ApiPublicExtActivateRoute: ApiPublicExtActivateRoute,
   ApiPublicExtExecRoute: ApiPublicExtExecRoute,

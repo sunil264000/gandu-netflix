@@ -423,6 +423,51 @@ export type Database = {
           },
         ]
       }
+      upload_jobs: {
+        Row: {
+          device_label: string | null
+          filename: string
+          id: string
+          message: string | null
+          progress: number
+          series_label: string | null
+          size_bytes: number
+          speed_bps: number
+          started_at: string
+          status: string
+          updated_at: string
+          uploaded_bytes: number
+        }
+        Insert: {
+          device_label?: string | null
+          filename: string
+          id: string
+          message?: string | null
+          progress?: number
+          series_label?: string | null
+          size_bytes?: number
+          speed_bps?: number
+          started_at?: string
+          status?: string
+          updated_at?: string
+          uploaded_bytes?: number
+        }
+        Update: {
+          device_label?: string | null
+          filename?: string
+          id?: string
+          message?: string | null
+          progress?: number
+          series_label?: string | null
+          size_bytes?: number
+          speed_bps?: number
+          started_at?: string
+          status?: string
+          updated_at?: string
+          uploaded_bytes?: number
+        }
+        Relationships: []
+      }
       usage_events: {
         Row: {
           action: string

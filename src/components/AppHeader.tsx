@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
-import { Search, Home, Library, Shield, Film } from "lucide-react";
+import { Search, Home, Library, Shield, Film, Activity } from "lucide-react";
 
 export function AppHeader() {
   const nav = useNavigate();
@@ -32,6 +32,7 @@ export function AppHeader() {
           <Link to="/" className={linkCls("/")}><Home className="w-4 h-4" /><span className="hidden sm:inline">Home</span></Link>
           <Link to="/library" className={linkCls("/library")}><Library className="w-4 h-4" /><span className="hidden sm:inline">Library</span></Link>
           <Link to="/admin" className={linkCls("/admin")}><Shield className="w-4 h-4" /><span className="hidden sm:inline">Admin</span></Link>
+          <Link to="/uploads" className={linkCls("/uploads")}><Activity className="w-4 h-4" /><span className="hidden sm:inline">Uploads</span></Link>
         </nav>
 
         <form onSubmit={onSearch} className="flex-1 max-w-xl ml-auto">
