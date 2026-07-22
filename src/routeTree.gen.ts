@@ -9,22 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SuccessOrderIdRouteImport } from './routes/success.$orderId'
-import { Route as CheckoutOrderIdRouteImport } from './routes/checkout.$orderId'
 import { Route as ApiPublicExtTokenRouteImport } from './routes/api/public/ext/token'
 import { Route as ApiPublicExtHeartbeatRouteImport } from './routes/api/public/ext/heartbeat'
 import { Route as ApiPublicExtExecRouteImport } from './routes/api/public/ext/exec'
 import { Route as ApiPublicExtActivateRouteImport } from './routes/api/public/ext/activate'
 
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
@@ -38,16 +30,6 @@ const AdminRoute = AdminRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SuccessOrderIdRoute = SuccessOrderIdRouteImport.update({
-  id: '/success/$orderId',
-  path: '/success/$orderId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CheckoutOrderIdRoute = CheckoutOrderIdRouteImport.update({
-  id: '/checkout/$orderId',
-  path: '/checkout/$orderId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicExtTokenRoute = ApiPublicExtTokenRouteImport.update({
@@ -75,9 +57,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
-  '/dashboard': typeof DashboardRoute
-  '/checkout/$orderId': typeof CheckoutOrderIdRoute
-  '/success/$orderId': typeof SuccessOrderIdRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -87,9 +66,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
-  '/dashboard': typeof DashboardRoute
-  '/checkout/$orderId': typeof CheckoutOrderIdRoute
-  '/success/$orderId': typeof SuccessOrderIdRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -100,9 +76,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
-  '/dashboard': typeof DashboardRoute
-  '/checkout/$orderId': typeof CheckoutOrderIdRoute
-  '/success/$orderId': typeof SuccessOrderIdRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -114,9 +87,6 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/auth'
-    | '/dashboard'
-    | '/checkout/$orderId'
-    | '/success/$orderId'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -126,9 +96,6 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/auth'
-    | '/dashboard'
-    | '/checkout/$orderId'
-    | '/success/$orderId'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -138,9 +105,6 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/auth'
-    | '/dashboard'
-    | '/checkout/$orderId'
-    | '/success/$orderId'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -151,9 +115,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   AuthRoute: typeof AuthRoute
-  DashboardRoute: typeof DashboardRoute
-  CheckoutOrderIdRoute: typeof CheckoutOrderIdRoute
-  SuccessOrderIdRoute: typeof SuccessOrderIdRoute
   ApiPublicExtActivateRoute: typeof ApiPublicExtActivateRoute
   ApiPublicExtExecRoute: typeof ApiPublicExtExecRoute
   ApiPublicExtHeartbeatRoute: typeof ApiPublicExtHeartbeatRoute
@@ -162,13 +123,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/auth': {
       id: '/auth'
       path: '/auth'
@@ -188,20 +142,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/success/$orderId': {
-      id: '/success/$orderId'
-      path: '/success/$orderId'
-      fullPath: '/success/$orderId'
-      preLoaderRoute: typeof SuccessOrderIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/checkout/$orderId': {
-      id: '/checkout/$orderId'
-      path: '/checkout/$orderId'
-      fullPath: '/checkout/$orderId'
-      preLoaderRoute: typeof CheckoutOrderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/ext/token': {
@@ -239,9 +179,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   AuthRoute: AuthRoute,
-  DashboardRoute: DashboardRoute,
-  CheckoutOrderIdRoute: CheckoutOrderIdRoute,
-  SuccessOrderIdRoute: SuccessOrderIdRoute,
   ApiPublicExtActivateRoute: ApiPublicExtActivateRoute,
   ApiPublicExtExecRoute: ApiPublicExtExecRoute,
   ApiPublicExtHeartbeatRoute: ApiPublicExtHeartbeatRoute,
