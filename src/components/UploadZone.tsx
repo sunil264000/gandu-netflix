@@ -1,8 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { supabase } from "@/integrations/supabase/client";
 import { Upload, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { createVideoRecord } from "@/lib/videos.functions";
+import { createVideoRecord, getUploadUrl } from "@/lib/videos.functions";
 
 type Job = {
   id: string;
