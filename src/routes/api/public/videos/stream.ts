@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
 type StreamVideo = {
   id: string;
   storage_path: string;
@@ -46,7 +48,8 @@ async function handleStream(request: Request, headOnly = false) {
   const chunkCount = Number(video.chunk_count ?? 0);
   if (!total || !chunkSize || !chunkCount) return new Response("Chunk metadata missing", { status: 500 });
 
-  const range = parseRange(request.headers.get("range"), total);
+  const requestedRange = request.headers.get("range");
+  const range = parseRange(requestedRange, total);
   if (!range) {
     return new Response("Invalid range", {
       status: 416,
@@ -54,7 +57,11 @@ async function handleStream(request: Request, headOnly = false) {
     });
   }
 
-  const status = request.headers.has("range") ? 206 : 200;
+  if (range.end - range.start + 1 > MAX_RESPONSE_BYTES) {
+    range.end = Math.min(range.start + MAX_RESPONSE_BYTES - 1, total - 1);
+  }
+
+  const status = 206;
   const contentLength = range.end - range.start + 1;
   const headers = new Headers({
     "accept-ranges": "bytes",
