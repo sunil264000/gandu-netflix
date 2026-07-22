@@ -54,8 +54,8 @@ function Admin() {
       if (!data.user) return setState("signin");
       try {
         const r = await _isOwner();
-        if (r.isOwner) setState("ready");
-        else if (r.claimed) setState("locked");
+        if (r.isAdmin) setState("ready");
+        else if (r.anyAdminExists) setState("locked");
         else setState("claim");
       } catch { setState("signin"); }
     })();
