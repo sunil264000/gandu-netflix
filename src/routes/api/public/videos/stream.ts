@@ -48,8 +48,7 @@ async function handleStream(request: Request, headOnly = false) {
   const chunkCount = Number(video.chunk_count ?? 0);
   if (!total || !chunkSize || !chunkCount) return new Response("Chunk metadata missing", { status: 500 });
 
-  const requestedRange = request.headers.get("range");
-  const range = parseRange(requestedRange, total);
+  const range = parseRange(request.headers.get("range"), total);
   if (!range) {
     return new Response("Invalid range", {
       status: 416,
