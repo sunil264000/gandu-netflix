@@ -230,9 +230,40 @@ export const updateVideo = createServerFn({ method: "POST" })
 
 export const deleteVideo = createServerFn({ method: "POST" })
   .inputValidator((i: { id: string }) => z.object({ id: z.string().uuid() }).parse(i))
-  .handler(async () => {
-    // Deletion disabled — videos are preserved in the database and storage.
-    return { ok: true, skipped: true };
+  .handler(async ({ data }) => {
+    const sb = await admin();
+    const { data: row, error: fetchErr } = await sb
+      .from("videos")
+      .select("storage_path, thumbnail_path, upload_mode, chunk_count")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (fetchErr) throw fetchErr;
+
+    if (row) {
+      // Remove video bytes (chunks or single file)
+      const videoPaths: string[] = [];
+      if (row.upload_mode === "chunked" && row.chunk_count && row.storage_path) {
+        for (let i = 0; i < row.chunk_count; i += 1) {
+          videoPaths.push(`${row.storage_path}.part-${String(i).padStart(6, "0")}`);
+        }
+      } else if (row.storage_path) {
+        videoPaths.push(row.storage_path);
+      }
+      if (videoPaths.length) {
+        await sb.storage.from("videos").remove(videoPaths);
+      }
+      if (row.thumbnail_path) {
+        await sb.storage.from("thumbnails").remove([row.thumbnail_path]);
+      }
+    }
+
+    // Clean up dependent rows first (avoid FK issues)
+    await sb.from("favorites").delete().eq("video_id", data.id);
+    await sb.from("watch_history").delete().eq("video_id", data.id);
+
+    const { error } = await sb.from("videos").delete().eq("id", data.id);
+    if (error) throw error;
+    return { ok: true };
   });
 
 export const createCategory = createServerFn({ method: "POST" })
