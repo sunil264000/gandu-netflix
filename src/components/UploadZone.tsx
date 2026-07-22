@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import * as tus from "tus-js-client";
-import { Upload, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { createVideoRecord } from "@/lib/videos.functions";
+import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp } from "lucide-react";
+import { createVideoRecord, createCategory, listCategories } from "@/lib/videos.functions";
 import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
@@ -67,7 +68,11 @@ type Job = {
   progress: number;
   status: "queued" | "thumb" | "uploading" | "saving" | "done" | "error";
   message?: string;
+  seriesLabel?: string;
+  categoryOverride?: string | null;
 };
+
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|mkv|avi|m4v|ts|mpeg|mpg|3gp|flv|wmv)$/i;
 
 // Grab a thumbnail from the video by seeking + drawing to canvas.
 async function extractThumbnail(file: File): Promise<{ blob: Blob | null; duration: number; width: number; height: number }> {
@@ -101,7 +106,11 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
   const _create = useServerFn(createVideoRecord);
+  const _createCat = useServerFn(createCategory);
+  const _listCats = useServerFn(listCategories);
+  const qc = useQueryClient();
 
   const updateJob = (id: string, patch: Partial<Job>) =>
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
@@ -142,11 +151,12 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       updateJob(job.id, { status: "saving", message: "Finalizing...", progress: 100 });
 
       const title = file.name.replace(/\.[^.]+$/, "");
+      const effectiveCategoryId = job.categoryOverride !== undefined ? job.categoryOverride : categoryId;
       await _create({ data: {
         title, storagePath, thumbnailPath, sizeBytes: file.size, mimeType: file.type || undefined,
         extension: ext || undefined, durationSec: meta.duration || undefined,
         width: meta.width || undefined, height: meta.height || undefined,
-        categoryId: categoryId, uploadMode, chunkCount, chunkSizeBytes,
+        categoryId: effectiveCategoryId, uploadMode, chunkCount, chunkSizeBytes,
       }});
 
       updateJob(job.id, { status: "done", message: "Uploaded" });
@@ -158,11 +168,81 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
   const addFiles = (files: FileList | null) => {
     if (!files) return;
-    const newJobs: Job[] = Array.from(files).map((file) => ({
+    const vids = Array.from(files).filter((f) => VIDEO_EXT_RE.test(f.name) || f.type.startsWith("video/"));
+    if (!vids.length) return;
+    const newJobs: Job[] = vids.map((file) => ({
       id: crypto.randomUUID(), file, progress: 0, status: "queued",
     }));
     setJobs((prev) => [...prev, ...newJobs]);
     newJobs.forEach(processFile);
+  };
+
+  const naturalCmp = (a: string, b: string) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+
+  const addFolder = async (files: FileList | null) => {
+    if (!files) return;
+    const all = Array.from(files).filter((f) => VIDEO_EXT_RE.test(f.name) || f.type.startsWith("video/"));
+    if (!all.length) return;
+
+    // Group by top-level folder from webkitRelativePath ("Series Name/S01/ep1.mkv")
+    const groups = new Map<string, File[]>();
+    for (const f of all) {
+      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+      const parts = rel.split("/");
+      const series = parts.length > 1 ? parts[0] : "";
+      const key = series || "__root__";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(f);
+    }
+
+    // Fetch existing categories once, case-insensitive dedupe
+    const existing = await _listCats();
+    const byName = new Map(existing.map((c) => [c.name.toLowerCase(), c.id]));
+
+    const pending: Job[] = [];
+    for (const [seriesName, filesInSeries] of groups) {
+      let catId: string | null = null;
+      let label: string | undefined;
+      if (seriesName !== "__root__") {
+        label = seriesName;
+        const existingId = byName.get(seriesName.toLowerCase());
+        if (existingId) {
+          catId = existingId;
+        } else {
+          try {
+            const created = await _createCat({ data: { name: seriesName } });
+            catId = created.id;
+            byName.set(seriesName.toLowerCase(), created.id);
+          } catch { catId = null; }
+        }
+      }
+      const sorted = filesInSeries.sort((a, b) => {
+        const ra = (a as File & { webkitRelativePath?: string }).webkitRelativePath || a.name;
+        const rb = (b as File & { webkitRelativePath?: string }).webkitRelativePath || b.name;
+        return naturalCmp(ra, rb);
+      });
+      for (const file of sorted) {
+        pending.push({
+          id: crypto.randomUUID(), file, progress: 0, status: "queued",
+          seriesLabel: label, categoryOverride: catId,
+        });
+      }
+    }
+
+    qc.invalidateQueries({ queryKey: ["admin:cats"] });
+    qc.invalidateQueries({ queryKey: ["cats"] });
+
+    setJobs((prev) => [...prev, ...pending]);
+    // Throttle: run 3 in parallel
+    const queue = [...pending];
+    const workers = Array.from({ length: 3 }, async () => {
+      while (queue.length) {
+        const next = queue.shift();
+        if (next) await processFile(next);
+      }
+    });
+    Promise.all(workers);
   };
 
   return (
@@ -182,6 +262,30 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         <input ref={inputRef} type="file" multiple accept="video/*,.mkv,.avi" hidden onChange={(e) => addFiles(e.target.files)} />
       </div>
 
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); folderRef.current?.click(); }}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium"
+        >
+          <FolderUp className="w-4 h-4" />
+          Upload folder as series
+        </button>
+        <p className="text-xs text-white/50">
+          Each top-level folder becomes a series (auto-creates a category with the folder name).
+        </p>
+        <input
+          ref={folderRef}
+          type="file"
+          hidden
+          multiple
+          onChange={(e) => { addFolder(e.target.files); e.currentTarget.value = ""; }}
+          // @ts-expect-error non-standard directory attributes
+          webkitdirectory=""
+          directory=""
+        />
+      </div>
+
       {jobs.length > 0 && (
         <div className="mt-4 space-y-2">
           {jobs.map((j) => (
@@ -193,7 +297,10 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                    <Loader2 className="w-5 h-5 text-red-400 animate-spin" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white truncate">{j.file.name}</p>
+                  <p className="text-sm text-white truncate">
+                    {j.seriesLabel ? <span className="text-red-400 mr-1.5">[{j.seriesLabel}]</span> : null}
+                    {j.file.name}
+                  </p>
                   <p className="text-xs text-white/50">{j.message ?? j.status} — {(j.file.size / 1024 / 1024).toFixed(1)} MB</p>
                 </div>
                 {j.status === "done" && (
