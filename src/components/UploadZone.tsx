@@ -44,6 +44,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const _create = useServerFn(createVideoRecord);
+  const _getUrl = useServerFn(getUploadUrl);
 
   const updateJob = (id: string, patch: Partial<Job>) =>
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
