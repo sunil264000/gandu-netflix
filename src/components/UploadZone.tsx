@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import * as tus from "tus-js-client";
 import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp, Activity } from "lucide-react";
 import { createVideoRecord, createCategory, listCategories } from "@/lib/videos.functions";
+import { createUploadJob, updateUploadJob } from "@/lib/uploadTracker";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -116,13 +117,42 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
 
   const processFile = useCallback(async (job: Job) => {
+    // Server tracker heartbeat state (throttled remote update)
+    let lastRemote = 0;
+    let lastRemoteBytes = 0;
+    let lastRemoteT = Date.now();
+    const remote = (patch: { status?: Job["status"]; message?: string; progress?: number; force?: boolean }) => {
+      const now = Date.now();
+      const bytes = job.file.size * Math.min(100, patch.progress ?? 0) / 100;
+      const dt = (now - lastRemoteT) / 1000;
+      const speedBps = dt > 0 ? Math.max(0, (bytes - lastRemoteBytes) / dt) : 0;
+      // Throttle: only push every ~1.5s during upload, always on status change
+      if (!patch.force && patch.status === undefined && now - lastRemote < 1500) return;
+      lastRemote = now;
+      lastRemoteT = now;
+      lastRemoteBytes = bytes;
+      updateUploadJob(job.id, {
+        status: patch.status,
+        message: patch.message,
+        progress: patch.progress,
+        uploadedBytes: Math.round(bytes),
+        speedBps: Math.round(speedBps),
+      });
+    };
+
     try {
       const file = job.file;
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
       const uid = crypto.randomUUID();
       const storagePath = `${uid}.${ext || "bin"}`;
 
+      // Register the job so other devices can see it
+      await createUploadJob({
+        id: job.id, filename: file.name, sizeBytes: file.size, seriesLabel: job.seriesLabel,
+      });
+
       updateJob(job.id, { status: "thumb", message: "Generating thumbnail..." });
+      remote({ status: "thumb", message: "Generating thumbnail...", progress: 0, force: true });
       const meta = await extractThumbnail(file);
 
       let thumbnailPath: string | undefined;
@@ -134,21 +164,28 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       }
 
       updateJob(job.id, { status: "uploading", message: "Uploading...", progress: 0 });
+      remote({ status: "uploading", message: "Uploading...", progress: 0, force: true });
 
       let uploadMode: "single" | "chunked" = "single";
       let chunkCount: number | undefined;
       let chunkSizeBytes: number | undefined;
 
+      const onPct = (pct: number) => {
+        updateJob(job.id, { progress: pct });
+        remote({ progress: pct });
+      };
+
       if (file.size > DIRECT_UPLOAD_LIMIT) {
         uploadMode = "chunked";
-        const chunkMeta = await uploadChunkedVideo(file, storagePath, (pct) => updateJob(job.id, { progress: pct }));
+        const chunkMeta = await uploadChunkedVideo(file, storagePath, onPct);
         chunkCount = chunkMeta.chunkCount;
         chunkSizeBytes = chunkMeta.chunkSizeBytes;
       } else {
-        await tusUpload("videos", storagePath, file, (pct) => updateJob(job.id, { progress: pct }));
+        await tusUpload("videos", storagePath, file, onPct);
       }
 
       updateJob(job.id, { status: "saving", message: "Finalizing...", progress: 100 });
+      remote({ status: "saving", message: "Finalizing...", progress: 100, force: true });
 
       const title = file.name.replace(/\.[^.]+$/, "");
       const effectiveCategoryId = job.categoryOverride !== undefined ? job.categoryOverride : categoryId;
@@ -160,11 +197,15 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       }});
 
       updateJob(job.id, { status: "done", message: "Uploaded" });
+      remote({ status: "done", message: "Uploaded", progress: 100, force: true });
       onDone();
     } catch (e: unknown) {
-      updateJob(job.id, { status: "error", message: (e as Error).message || "Upload failed" });
+      const msg = (e as Error).message || "Upload failed";
+      updateJob(job.id, { status: "error", message: msg });
+      updateUploadJob(job.id, { status: "error", message: msg });
     }
   }, [_create, categoryId, onDone]);
+
 
   const addFiles = (files: FileList | null) => {
     if (!files) return;
