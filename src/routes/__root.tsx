@@ -78,13 +78,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Vault — Your Private Video Library" },
+      { title: "GANDU NETFLIX — Your Private Video Library" },
       { name: "description", content: "Stream your personal video collection with a premium, YouTube-fast experience." },
-      { property: "og:title", content: "Vault — Your Private Video Library" },
+      { property: "og:title", content: "GANDU NETFLIX — Your Private Video Library" },
       { property: "og:description", content: "Stream your personal video collection." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Vault — Your Private Video Library" },
+      { name: "twitter:title", content: "GANDU NETFLIX" },
       { name: "twitter:description", content: "Stream your personal video collection." },
     ],
     links: [
