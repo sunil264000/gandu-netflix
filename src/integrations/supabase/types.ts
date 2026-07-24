@@ -553,6 +553,7 @@ export type Database = {
           id: string
           mime_type: string | null
           size_bytes: number
+          slug: string | null
           storage_path: string
           thumbnail_path: string | null
           title: string
@@ -574,6 +575,7 @@ export type Database = {
           id?: string
           mime_type?: string | null
           size_bytes?: number
+          slug?: string | null
           storage_path: string
           thumbnail_path?: string | null
           title: string
@@ -595,6 +597,7 @@ export type Database = {
           id?: string
           mime_type?: string | null
           size_bytes?: number
+          slug?: string | null
           storage_path?: string
           thumbnail_path?: string | null
           title?: string
@@ -666,6 +669,7 @@ export type Database = {
         Args: { _video_id: string }
         Returns: undefined
       }
+      slugify: { Args: { input: string }; Returns: string }
     }
     Enums: {
       app_role: "admin" | "user"
