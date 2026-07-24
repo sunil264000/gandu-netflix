@@ -4,6 +4,7 @@ import { z } from "zod";
 
 export type VideoRow = {
   id: string;
+  slug: string | null;
   title: string;
   description: string | null;
   storage_path: string;
