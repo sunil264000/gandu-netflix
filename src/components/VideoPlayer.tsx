@@ -4,6 +4,8 @@ import {
   SkipBack, SkipForward, Loader2, Settings, Gauge, Rewind, FastForward,
 } from "lucide-react";
 
+type CaptionTrack = { src: string; label: string; srclang: string; default?: boolean };
+
 type Props = {
   src: string;
   poster?: string | null;
@@ -11,6 +13,7 @@ type Props = {
   onProgress?: (pos: number, dur: number) => void;
   onEnded?: () => void;
   autoPlay?: boolean;
+  captions?: CaptionTrack[];
 };
 
 function fmt(t: number) {
@@ -21,7 +24,7 @@ function fmt(t: number) {
 
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
-export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay }: Props) {
+export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -218,13 +221,18 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
         ref={vidRef}
         src={src}
         poster={poster ?? undefined}
-        className="w-full h-full object-contain"
+        className="w-full h-full object-contain touch-manipulation"
         style={{ imageRendering: "auto" }}
         autoPlay={autoPlay}
         playsInline
         preload="auto"
         crossOrigin="anonymous"
-      />
+      >
+        {(captions ?? []).map((t, i) => (
+          <track key={i} kind="subtitles" src={t.src} srcLang={t.srclang} label={t.label} default={t.default} />
+        ))}
+      </video>
+
 
       {loading && (
         <div className="absolute inset-0 grid place-items-center pointer-events-none">

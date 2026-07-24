@@ -9,9 +9,9 @@ export const Route = createFileRoute("/uploads")({
   component: LiveUploads,
   ssr: false,
   head: () => ({ meta: [
-    { title: "Live Uploads — Vault" },
+    { title: "Live Uploads — GANDU NETFLIX" },
     { name: "description", content: "Watch every device's upload progress in real time." },
-    { property: "og:title", content: "Live Uploads — Vault" },
+    { property: "og:title", content: "Live Uploads — GANDU NETFLIX" },
     { property: "og:description", content: "Watch every device's upload progress in real time." },
   ]}),
 });
@@ -125,7 +125,7 @@ function LiveUploads() {
       <main className="max-w-6xl mx-auto px-4 lg:px-8 py-8 space-y-8">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <div className="text-xs font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">Vault · Live</div>
+            <div className="text-xs font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">GANDU NETFLIX · Live</div>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Uploads across all devices</h1>
             <p className="mt-2 text-sm text-zinc-400 flex items-center gap-2">
               <Wifi className={`w-4 h-4 ${connected ? "text-emerald-400" : "text-zinc-500"}`} />

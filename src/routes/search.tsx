@@ -10,9 +10,9 @@ export const Route = createFileRoute("/search")({
   component: Search, ssr: false,
   validateSearch: z.object({ q: z.string().default("") }),
   head: () => ({ meta: [
-    { title: "Search — Vault" },
+    { title: "Search — GANDU NETFLIX" },
     { name: "description", content: "Search your video library." },
-    { property: "og:title", content: "Search — Vault" },
+    { property: "og:title", content: "Search — GANDU NETFLIX" },
     { property: "og:description", content: "Search your video library." },
   ]}),
 });
