@@ -15,6 +15,7 @@ import { Route as LibraryRouteImport } from './routes/library'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WatchSlugRouteImport } from './routes/watch.$slug'
 import { Route as WatchIdRouteImport } from './routes/watch.$id'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicVideosStreamRouteImport } from './routes/api/public/videos/stream'
@@ -51,6 +52,11 @@ const AdminRoute = AdminRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WatchSlugRoute = WatchSlugRouteImport.update({
+  id: '/watch/$slug',
+  path: '/watch/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WatchIdRoute = WatchIdRouteImport.update({
@@ -97,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/search': typeof SearchRoute
   '/uploads': typeof UploadsRoute
   '/watch/$id': typeof WatchIdRoute
+  '/watch/$slug': typeof WatchSlugRoute
   '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
@@ -112,6 +119,7 @@ export interface FileRoutesByTo {
   '/search': typeof SearchRoute
   '/uploads': typeof UploadsRoute
   '/watch/$id': typeof WatchIdRoute
+  '/watch/$slug': typeof WatchSlugRoute
   '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
@@ -128,6 +136,7 @@ export interface FileRoutesById {
   '/search': typeof SearchRoute
   '/uploads': typeof UploadsRoute
   '/watch/$id': typeof WatchIdRoute
+  '/watch/$slug': typeof WatchSlugRoute
   '/api/public/health': typeof ApiPublicHealthRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
@@ -145,6 +154,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/uploads'
     | '/watch/$id'
+    | '/watch/$slug'
     | '/api/public/health'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
@@ -160,6 +170,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/uploads'
     | '/watch/$id'
+    | '/watch/$slug'
     | '/api/public/health'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
@@ -175,6 +186,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/uploads'
     | '/watch/$id'
+    | '/watch/$slug'
     | '/api/public/health'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
@@ -191,6 +203,7 @@ export interface RootRouteChildren {
   SearchRoute: typeof SearchRoute
   UploadsRoute: typeof UploadsRoute
   WatchIdRoute: typeof WatchIdRoute
+  WatchSlugRoute: typeof WatchSlugRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
   ApiPublicExtActivateRoute: typeof ApiPublicExtActivateRoute
   ApiPublicExtExecRoute: typeof ApiPublicExtExecRoute
@@ -241,6 +254,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/watch/$slug': {
+      id: '/watch/$slug'
+      path: '/watch/$slug'
+      fullPath: '/watch/$slug'
+      preLoaderRoute: typeof WatchSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/watch/$id': {
@@ -303,6 +323,7 @@ const rootRouteChildren: RootRouteChildren = {
   SearchRoute: SearchRoute,
   UploadsRoute: UploadsRoute,
   WatchIdRoute: WatchIdRoute,
+  WatchSlugRoute: WatchSlugRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
   ApiPublicExtActivateRoute: ApiPublicExtActivateRoute,
   ApiPublicExtExecRoute: ApiPublicExtExecRoute,
