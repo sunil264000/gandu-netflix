@@ -2,12 +2,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Trash2, Plus, Film, HardDrive, Eye } from "lucide-react";
+import { Trash2, Plus, Film, HardDrive, Eye, Sparkles, Loader2 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { UploadZone } from "@/components/UploadZone";
 import {
   listVideos, listCategories, deleteVideo, updateVideo,
-  createCategory, deleteCategory, storageStats,
+  createCategory, deleteCategory, storageStats, backfillThumbnails,
 } from "@/lib/videos.functions";
 import { useLiveVideos } from "@/hooks/useLiveVideos";
 
