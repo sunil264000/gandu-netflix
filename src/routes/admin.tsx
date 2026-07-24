@@ -2,12 +2,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Trash2, Plus, Film, HardDrive, Eye } from "lucide-react";
+import { Trash2, Plus, Film, HardDrive, Eye, Sparkles, Loader2 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { UploadZone } from "@/components/UploadZone";
 import {
   listVideos, listCategories, deleteVideo, updateVideo,
-  createCategory, deleteCategory, storageStats,
+  createCategory, deleteCategory, storageStats, backfillThumbnails,
 } from "@/lib/videos.functions";
 import { useLiveVideos } from "@/hooks/useLiveVideos";
 
@@ -38,11 +38,14 @@ function Admin() {
   const _createCat = useServerFn(createCategory);
   const _delCat = useServerFn(deleteCategory);
   const _stats = useServerFn(storageStats);
+  const _backfill = useServerFn(backfillThumbnails);
 
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [newCat, setNewCat] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
 
   const vids = useQuery({ queryKey: ["admin:videos"], queryFn: () => _list({ data: { sort: "new", limit: 60 } }) });
   const cats = useQuery({ queryKey: ["admin:cats"], queryFn: () => _cats() });
@@ -54,6 +57,20 @@ function Admin() {
     qc.invalidateQueries({ queryKey: ["admin:videos"] });
     qc.invalidateQueries({ queryKey: ["admin:stats"] });
   };
+
+  const runBackfill = async () => {
+    setBackfilling(true); setBackfillMsg(null);
+    try {
+      const r = await _backfill();
+      setBackfillMsg(r.generated === 0 ? "All videos already have thumbnails." : `Generated ${r.generated} thumbnail${r.generated === 1 ? "" : "s"}.`);
+      refresh();
+    } catch (e) {
+      setBackfillMsg((e as Error).message || "Backfill failed");
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
 
 
   return (
@@ -68,6 +85,23 @@ function Admin() {
           <StatCard icon={<HardDrive className="w-5 h-5" />} label="Storage" value={fmtBytes(stats.data?.total_bytes ?? 0)} />
           <StatCard icon={<Eye className="w-5 h-5" />} label="Total Views" value={String(stats.data?.total_views ?? 0)} />
         </div>
+
+        {/* Thumbnail backfill */}
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-white">Missing thumbnails?</div>
+            <div className="text-xs text-white/60">Generates a cinematic poster for every video without a thumbnail. Great for MKV / HEVC files the browser can't decode.</div>
+            {backfillMsg && <div className="mt-1 text-xs text-emerald-400">{backfillMsg}</div>}
+          </div>
+          <button
+            type="button" onClick={runBackfill} disabled={backfilling}
+            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-500 to-red-700 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 disabled:opacity-50"
+          >
+            {backfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {backfilling ? "Generating..." : "Generate missing thumbnails"}
+          </button>
+        </section>
+
 
         {/* Upload */}
         <section>
