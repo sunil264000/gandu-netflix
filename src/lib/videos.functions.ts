@@ -319,3 +319,65 @@ export const getUploadUrl = createServerFn({ method: "POST" })
     if (error) throw error;
     return signed;
   });
+
+// -------- Thumbnail backfill (server-generated SVG poster) --------
+
+function fnv1a(s: string) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h;
+}
+
+function svgPoster(title: string): string {
+  const clean = title.replace(/\.[^.]+$/, "").replace(/\[[^\]]*\]|\{[^}]*\}/g, "").replace(/\s+/g, " ").trim();
+  const hue = fnv1a(clean) % 360;
+  const words = clean.split(" ");
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (test.length > 26 && line) { lines.push(line); line = w; } else { line = test; }
+    if (lines.length >= 2) break;
+  }
+  if (line && lines.length < 2) lines.push(line);
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const c1 = `hsl(${hue}, 65%, 22%)`;
+  const c2 = `hsl(${(hue + 30) % 360}, 55%, 12%)`;
+  const c3 = `hsl(${(hue + 60) % 360}, 70%, 8%)`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${c1}"/><stop offset="50%" stop-color="${c2}"/><stop offset="100%" stop-color="${c3}"/>
+    </linearGradient>
+    <radialGradient id="v" cx="50%" cy="50%" r="70%"><stop offset="60%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.7)"/></radialGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#g)"/>
+  <rect width="1280" height="720" fill="url(#v)"/>
+  <g transform="translate(640 300)">
+    <circle r="80" fill="rgba(255,255,255,0.10)"/>
+    <path d="M -22 -30 L -22 30 L 30 0 Z" fill="rgba(255,255,255,0.9)"/>
+  </g>
+  <g font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-weight="600" fill="rgba(255,255,255,0.95)" text-anchor="middle">
+    ${lines.map((ln, i) => `<text x="640" y="${470 + i * 56}" font-size="42">${esc(ln)}</text>`).join("")}
+  </g>
+</svg>`;
+}
+
+export const backfillThumbnails = createServerFn({ method: "POST" }).handler(async () => {
+  const sb = await admin();
+  const { data: rows, error } = await sb.from("videos").select("id, title, thumbnail_path").is("thumbnail_path", null);
+  if (error) throw error;
+  let generated = 0;
+  for (const row of rows ?? []) {
+    const path = `${row.id}.svg`;
+    const svg = svgPoster(row.title);
+    const { error: upErr } = await sb.storage.from("thumbnails").upload(path, new Blob([svg], { type: "image/svg+xml" }), {
+      upsert: true, contentType: "image/svg+xml", cacheControl: "31536000",
+    });
+    if (upErr) continue;
+    const { error: updErr } = await sb.from("videos").update({ thumbnail_path: path }).eq("id", row.id);
+    if (!updErr) generated += 1;
+  }
+  return { generated, scanned: rows?.length ?? 0 };
+});
