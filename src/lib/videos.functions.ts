@@ -75,8 +75,8 @@ export const searchVideos = createServerFn({ method: "GET" })
     })));
   });
 
-export const getVideo = createServerFn({ method: "GET" })
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 
 export const getVideo = createServerFn({ method: "GET" })
   .inputValidator((i: { id: string }) => z.object({ id: z.string().min(1).max(200) }).parse(i))
