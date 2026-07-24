@@ -245,10 +245,11 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       const meta = await extractThumbnail(file);
 
       let thumbnailPath: string | undefined;
-      if (meta.blob) {
+      const thumbBlob = meta.blob ?? (await generatePosterThumbnail(file.name));
+      if (thumbBlob) {
         thumbnailPath = `${uid}.jpg`;
         try {
-          await tusUpload("thumbnails", thumbnailPath, meta.blob);
+          await uploadObject("thumbnails", thumbnailPath, thumbBlob, "image/jpeg");
         } catch { thumbnailPath = undefined; }
       }
 
