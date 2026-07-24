@@ -24,7 +24,7 @@ function fmt(t: number) {
 
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
-export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay }: Props) {
+export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
