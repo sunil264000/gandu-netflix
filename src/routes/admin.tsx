@@ -86,6 +86,23 @@ function Admin() {
           <StatCard icon={<Eye className="w-5 h-5" />} label="Total Views" value={String(stats.data?.total_views ?? 0)} />
         </div>
 
+        {/* Thumbnail backfill */}
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-white">Missing thumbnails?</div>
+            <div className="text-xs text-white/60">Generates a cinematic poster for every video without a thumbnail. Great for MKV / HEVC files the browser can't decode.</div>
+            {backfillMsg && <div className="mt-1 text-xs text-emerald-400">{backfillMsg}</div>}
+          </div>
+          <button
+            type="button" onClick={runBackfill} disabled={backfilling}
+            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-500 to-red-700 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 disabled:opacity-50"
+          >
+            {backfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {backfilling ? "Generating..." : "Generate missing thumbnails"}
+          </button>
+        </section>
+
+
         {/* Upload */}
         <section>
           <div className="flex items-center justify-between mb-3">
