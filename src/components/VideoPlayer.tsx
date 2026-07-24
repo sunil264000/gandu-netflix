@@ -221,13 +221,18 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
         ref={vidRef}
         src={src}
         poster={poster ?? undefined}
-        className="w-full h-full object-contain"
+        className="w-full h-full object-contain touch-manipulation"
         style={{ imageRendering: "auto" }}
         autoPlay={autoPlay}
         playsInline
         preload="auto"
         crossOrigin="anonymous"
-      />
+      >
+        {(captions ?? []).map((t, i) => (
+          <track key={i} kind="subtitles" src={t.src} srcLang={t.srclang} label={t.label} default={t.default} />
+        ))}
+      </video>
+
 
       {loading && (
         <div className="absolute inset-0 grid place-items-center pointer-events-none">
