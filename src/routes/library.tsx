@@ -9,9 +9,9 @@ import { listVideos, listCategories } from "@/lib/videos.functions";
 export const Route = createFileRoute("/library")({
   component: Library, ssr: false,
   head: () => ({ meta: [
-    { title: "Library — Vault" },
+    { title: "Library — GANDU NETFLIX" },
     { name: "description", content: "Browse your full video library." },
-    { property: "og:title", content: "Library — Vault" },
+    { property: "og:title", content: "Library — GANDU NETFLIX" },
     { property: "og:description", content: "Browse your full video library." },
   ]}),
 });

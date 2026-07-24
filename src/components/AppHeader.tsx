@@ -25,7 +25,7 @@ export function AppHeader() {
           <div className="w-9 h-9 rounded-xl grid place-items-center bg-gradient-to-br from-red-500 to-red-700 shadow-lg shadow-red-500/30">
             <Film className="w-5 h-5 text-white" />
           </div>
-          <span className="text-white font-bold text-lg tracking-tight hidden sm:block">Vault</span>
+          <span className="text-white font-bold text-lg tracking-tight hidden sm:block">GANDU NETFLIX</span>
         </Link>
 
         <nav className="flex items-center gap-1">

@@ -11,9 +11,9 @@ export const Route = createFileRoute("/")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Vault — Your Private Video Library" },
+      { title: "GANDU NETFLIX — Your Private Video Library" },
       { name: "description", content: "Stream your personal video collection with a premium, YouTube-fast experience." },
-      { property: "og:title", content: "Vault — Your Private Video Library" },
+      { property: "og:title", content: "GANDU NETFLIX — Your Private Video Library" },
       { property: "og:description", content: "Stream your personal video collection with a premium, YouTube-fast experience." },
     ],
   }),

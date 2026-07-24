@@ -14,9 +14,9 @@ import { useLiveVideos } from "@/hooks/useLiveVideos";
 export const Route = createFileRoute("/admin")({
   component: Admin, ssr: false,
   head: () => ({ meta: [
-    { title: "Admin — Vault" },
+    { title: "Admin — GANDU NETFLIX" },
     { name: "description", content: "Manage videos, categories, and library." },
-    { property: "og:title", content: "Admin — Vault" },
+    { property: "og:title", content: "Admin — GANDU NETFLIX" },
     { property: "og:description", content: "Manage videos, categories, and library." },
   ]}),
 });
