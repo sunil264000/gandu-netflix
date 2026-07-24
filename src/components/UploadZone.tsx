@@ -82,31 +82,100 @@ type Job = {
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|mkv|avi|m4v|ts|mpeg|mpg|3gp|flv|wmv)$/i;
 
-// Grab a thumbnail from the video by seeking + drawing to canvas.
+// Try native <video> decode; if the browser can't decode the codec (MKV/HEVC/10-bit),
+// return null and let the caller build a stylized poster from the title.
 async function extractThumbnail(file: File): Promise<{ blob: Blob | null; duration: number; width: number; height: number }> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const v = document.createElement("video");
-    v.preload = "metadata"; v.src = url; v.muted = true; v.playsInline = true;
-    const done = (blob: Blob | null) => { URL.revokeObjectURL(url); resolve({ blob, duration: v.duration || 0, width: v.videoWidth || 0, height: v.videoHeight || 0 }); };
-    v.onloadedmetadata = () => {
-      const seekTo = Math.min(Math.max(1, v.duration * 0.1), 30);
-      v.currentTime = isFinite(seekTo) ? seekTo : 1;
+    v.preload = "auto"; v.src = url; v.muted = true; v.playsInline = true; v.crossOrigin = "anonymous";
+    let settled = false;
+    const done = (blob: Blob | null) => {
+      if (settled) return; settled = true;
+      URL.revokeObjectURL(url);
+      resolve({ blob, duration: v.duration || 0, width: v.videoWidth || 0, height: v.videoHeight || 0 });
     };
-    v.onseeked = () => {
+    const draw = () => {
       try {
         const w = v.videoWidth, h = v.videoHeight;
-        if (!w || !h) { done(null); return; }
+        if (!w || !h) return false;
         const canvas = document.createElement("canvas");
         const scale = Math.min(1, 1920 / w);
         canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
-        const ctx = canvas.getContext("2d"); if (!ctx) { done(null); return; }
+        const ctx = canvas.getContext("2d"); if (!ctx) return false;
         ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((b) => done(b), "image/jpeg", 0.95);
-      } catch { done(null); }
+        canvas.toBlob((b) => { if (b) done(b); }, "image/jpeg", 0.92);
+        return true;
+      } catch { return false; }
     };
+    let attempt = 0;
+    const seekPositions = [3, 15, 60, 0.5];
+    const trySeek = () => {
+      if (attempt >= seekPositions.length) { done(null); return; }
+      const target = seekPositions[attempt++];
+      const t = isFinite(v.duration) && v.duration > 0
+        ? Math.min(Math.max(0.1, target), Math.max(0.1, v.duration - 0.1))
+        : target;
+      try { v.currentTime = t; } catch { done(null); }
+    };
+    v.onloadedmetadata = () => trySeek();
+    v.onseeked = () => { if (!draw()) trySeek(); };
     v.onerror = () => done(null);
-    setTimeout(() => done(null), 15000);
+    setTimeout(() => done(null), 20000);
+  });
+}
+
+// Deterministic hash for consistent colors per title.
+function hashStr(s: string) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h;
+}
+
+// Build a cinematic gradient poster from the title when the video can't be decoded.
+async function generatePosterThumbnail(title: string): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    try {
+      const W = 1280, H = 720;
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d"); if (!ctx) return resolve(null);
+      const clean = title.replace(/\.[^.]+$/, "").replace(/\[[^\]]*\]|\{[^}]*\}/g, "").replace(/\s+/g, " ").trim();
+      const hue = hashStr(clean) % 360;
+      const g = ctx.createLinearGradient(0, 0, W, H);
+      g.addColorStop(0, `hsl(${hue}, 65%, 22%)`);
+      g.addColorStop(0.5, `hsl(${(hue + 30) % 360}, 55%, 12%)`);
+      g.addColorStop(1, `hsl(${(hue + 60) % 360}, 70%, 8%)`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // Vignette
+      const rg = ctx.createRadialGradient(W / 2, H / 2, 100, W / 2, H / 2, W * 0.7);
+      rg.addColorStop(0, "rgba(0,0,0,0)"); rg.addColorStop(1, "rgba(0,0,0,0.65)");
+      ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+      // Play glyph
+      ctx.save();
+      ctx.translate(W / 2, H / 2 - 40);
+      ctx.fillStyle = "rgba(255,255,255,0.10)";
+      ctx.beginPath(); ctx.arc(0, 0, 80, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.beginPath(); ctx.moveTo(-22, -30); ctx.lineTo(-22, 30); ctx.lineTo(30, 0); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      // Title
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = "600 42px system-ui, -apple-system, sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const words = clean.split(" ");
+      const lines: string[] = [];
+      let line = "";
+      for (const w of words) {
+        const test = line ? line + " " + w : w;
+        if (ctx.measureText(test).width > W - 120 && line) { lines.push(line); line = w; } else { line = test; }
+        if (lines.length >= 2) break;
+      }
+      if (line) lines.push(line);
+      const shown = lines.slice(0, 2);
+      shown.forEach((ln, i) => ctx.fillText(ln, W / 2, H / 2 + 110 + i * 52));
+      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.9);
+    } catch { resolve(null); }
   });
 }
 
