@@ -1,14 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { log, newRequestId, errShape } from "@/lib/server-log";
 
-// Tuned for slow connections (~10 Mbps): small responses so playback starts
-// almost immediately and the browser can seek without over-fetching.
-const MAX_RESPONSE_BYTES = 4 * 1024 * 1024; // 4 MB per range response
-const PARALLEL_FETCHES = 3;
+// Large response window + parallel chunk prefetch so 4K/HEVC files stream
+// continuously instead of restarting a new request every few MB. Browsers
+// naturally throttle their own read speed via TCP backpressure, so a big
+// window doesn't waste bandwidth — it just avoids per-request overhead.
+const MAX_RESPONSE_BYTES = 24 * 1024 * 1024; // 24 MB per range response
+const PARALLEL_FETCHES = 6;
 const SIGNED_URL_TTL = 60 * 60 * 6;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
 const CHUNK_FETCH_RETRIES = 3;
-const CHUNK_FETCH_TIMEOUT_MS = 20_000;
+const CHUNK_FETCH_TIMEOUT_MS = 25_000;
 
 type StreamVideo = {
   id: string;
