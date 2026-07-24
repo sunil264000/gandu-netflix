@@ -4,6 +4,8 @@ import {
   SkipBack, SkipForward, Loader2, Settings, Gauge, Rewind, FastForward,
 } from "lucide-react";
 
+type CaptionTrack = { src: string; label: string; srclang: string; default?: boolean };
+
 type Props = {
   src: string;
   poster?: string | null;
@@ -11,6 +13,7 @@ type Props = {
   onProgress?: (pos: number, dur: number) => void;
   onEnded?: () => void;
   autoPlay?: boolean;
+  captions?: CaptionTrack[];
 };
 
 function fmt(t: number) {
