@@ -29,7 +29,7 @@ export function VideoCard({ v, index = 0 }: { v: VideoCardData; index?: number }
       whileHover={{ y: -4 }}
       className="group"
     >
-      <Link to="/watch/$id" params={{ id: v.id }} className="block">
+      <Link to="/watch/$slug" params={{ slug: v.slug ?? v.id }} className="block">
         <div className="relative aspect-video rounded-2xl overflow-hidden bg-white/5 border border-white/5 group-hover:border-red-500/40 transition-all shadow-lg group-hover:shadow-red-500/20">
           {v.thumbnail_url ? (
             <img src={v.thumbnail_url} alt={v.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
