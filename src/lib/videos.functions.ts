@@ -76,10 +76,18 @@ export const searchVideos = createServerFn({ method: "GET" })
   });
 
 export const getVideo = createServerFn({ method: "GET" })
-  .inputValidator((i: { id: string }) => z.object({ id: z.string().uuid() }).parse(i))
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const getVideo = createServerFn({ method: "GET" })
+  .inputValidator((i: { id: string }) => z.object({ id: z.string().min(1).max(200) }).parse(i))
   .handler(async ({ data }) => {
     const sb = await admin();
-    const { data: v, error } = await sb.from("videos").select("*").eq("id", data.id).maybeSingle();
+    const isUuid = UUID_RE.test(data.id);
+    const { data: v, error } = await sb
+      .from("videos")
+      .select("*")
+      .eq(isUuid ? "id" : "slug", data.id)
+      .maybeSingle();
     if (error) throw error;
     if (!v) throw new Error("not_found");
     const streamUrl = v.upload_mode === "chunked"
@@ -87,7 +95,7 @@ export const getVideo = createServerFn({ method: "GET" })
       : await signPath(sb, "videos", v.storage_path);
     const thumbnailUrl = await signPath(sb, "thumbnails", v.thumbnail_path);
     const { data: progress } = await sb.from("watch_history")
-      .select("position_sec, completed").eq("user_id", ANON_USER).eq("video_id", data.id).maybeSingle();
+      .select("position_sec, completed").eq("user_id", ANON_USER).eq("video_id", v.id).maybeSingle();
     return { ...v, stream_url: streamUrl, thumbnail_url: thumbnailUrl, resume_at: progress?.position_sec ?? 0, completed: progress?.completed ?? false };
   });
 
