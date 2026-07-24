@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 
 export type VideoCardData = {
   id: string;
+  slug?: string | null;
   title: string;
   duration_sec: number | null;
   thumbnail_url: string | null;
