@@ -38,11 +38,14 @@ function Admin() {
   const _createCat = useServerFn(createCategory);
   const _delCat = useServerFn(deleteCategory);
   const _stats = useServerFn(storageStats);
+  const _backfill = useServerFn(backfillThumbnails);
 
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [newCat, setNewCat] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
 
   const vids = useQuery({ queryKey: ["admin:videos"], queryFn: () => _list({ data: { sort: "new", limit: 60 } }) });
   const cats = useQuery({ queryKey: ["admin:cats"], queryFn: () => _cats() });
@@ -54,6 +57,20 @@ function Admin() {
     qc.invalidateQueries({ queryKey: ["admin:videos"] });
     qc.invalidateQueries({ queryKey: ["admin:stats"] });
   };
+
+  const runBackfill = async () => {
+    setBackfilling(true); setBackfillMsg(null);
+    try {
+      const r = await _backfill();
+      setBackfillMsg(r.generated === 0 ? "All videos already have thumbnails." : `Generated ${r.generated} thumbnail${r.generated === 1 ? "" : "s"}.`);
+      refresh();
+    } catch (e) {
+      setBackfillMsg((e as Error).message || "Backfill failed");
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
 
 
   return (
