@@ -27,6 +27,8 @@ const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
+  const previewRef = useRef<HTMLVideoElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
@@ -47,12 +49,16 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const [loading, setLoading] = useState(true);
   const [menu, setMenu] = useState<null | "rate" | "settings">(null);
   const [hoverPct, setHoverPct] = useState<number | null>(null);
+  const [scrubbing, setScrubbing] = useState(false);
+  const [previewReady, setPreviewReady] = useState(false);
   const [seekFlash, setSeekFlash] = useState<null | "back" | "fwd">(null);
   const [toast, setToast] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastReport = useRef(0);
   const lastTap = useRef<{ t: number; side: "l" | "r" | null }>({ t: 0, side: null });
+
 
   const kickHide = useCallback(() => {
     setShowControls(true);
@@ -265,33 +271,83 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
       )}
 
       <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pt-20 pb-3 transition-all duration-300 ${showControls || menu ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"}`}>
-        {/* Progress bar */}
+        {/* Progress bar with drag scrubbing + frame preview */}
         <div
-          className="relative h-1.5 mb-3 group/bar cursor-pointer"
-          onClick={(e) => {
+          ref={barRef}
+          className="relative h-6 -my-2 mb-1 group/bar cursor-pointer touch-none flex items-center"
+          onPointerDown={(e) => {
             e.stopPropagation();
-            const r = e.currentTarget.getBoundingClientRect();
-            setPos(((e.clientX - r.left) / r.width) * duration);
+            const bar = barRef.current; if (!bar || !duration) return;
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+            setScrubbing(true);
+            const wasPlaying = vidRef.current ? !vidRef.current.paused : false;
+            if (wasPlaying) vidRef.current?.pause();
+            (e.currentTarget as any)._wasPlaying = wasPlaying;
+            const r = bar.getBoundingClientRect();
+            const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+            setHoverPct(p * 100);
+            setPos(p * duration);
           }}
-          onMouseMove={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setHoverPct(Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100)));
+          onPointerMove={(e) => {
+            const bar = barRef.current; if (!bar || !duration) return;
+            const r = bar.getBoundingClientRect();
+            const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+            setHoverPct(p * 100);
+            if (scrubbing) setPos(p * duration);
+            // Debounced preview seek
+            if (previewSeekTimer.current) clearTimeout(previewSeekTimer.current);
+            previewSeekTimer.current = setTimeout(() => {
+              const pv = previewRef.current;
+              if (pv && isFinite(pv.duration)) {
+                try { pv.currentTime = p * pv.duration; } catch {}
+              }
+            }, 60);
           }}
-          onMouseLeave={() => setHoverPct(null)}
+          onPointerUp={(e) => {
+            (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+            if (scrubbing) {
+              setScrubbing(false);
+              if ((e.currentTarget as any)._wasPlaying) vidRef.current?.play().catch(() => {});
+            }
+          }}
+          onPointerLeave={() => { if (!scrubbing) setHoverPct(null); }}
         >
           <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-white/20 rounded-full group-hover/bar:h-1.5 transition-all" />
-          <div className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 bg-white/40 rounded-full group-hover/bar:h-1.5 transition-all" style={{ width: `${bufPct}%` }} />
-          <div className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 bg-red-500 rounded-full group-hover/bar:h-1.5 transition-all" style={{ width: `${pct}%` }} />
+          <div className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 bg-white/40 rounded-full group-hover/bar:h-1.5 transition-all pointer-events-none" style={{ width: `${bufPct}%` }} />
+          <div className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 bg-red-500 rounded-full group-hover/bar:h-1.5 transition-all pointer-events-none" style={{ width: `${pct}%` }} />
           {hoverPct != null && (
             <>
-              <div className="absolute inset-y-0 top-1/2 -translate-y-1/2 h-1 bg-white/30 rounded-full pointer-events-none" style={{ width: `${hoverPct}%` }} />
-              <div className="absolute -top-8 -translate-x-1/2 bg-black/90 text-white text-[11px] px-2 py-1 rounded font-mono pointer-events-none" style={{ left: `${hoverPct}%` }}>
-                {fmt(hoverTime)}
+              <div className="absolute top-1/2 -translate-y-1/2 h-1 bg-white/30 rounded-full pointer-events-none" style={{ left: 0, width: `${hoverPct}%` }} />
+              {/* Frame preview thumbnail */}
+              <div
+                className="absolute -top-[124px] -translate-x-1/2 pointer-events-none flex flex-col items-center gap-1"
+                style={{ left: `min(max(${hoverPct}%, 84px), calc(100% - 84px))` }}
+              >
+                <div className="w-40 aspect-video bg-black rounded-md overflow-hidden ring-1 ring-white/20 shadow-2xl relative">
+                  <video
+                    ref={previewRef}
+                    src={src}
+                    className="w-full h-full object-contain"
+                    muted
+                    playsInline
+                    preload="metadata"
+                    crossOrigin="anonymous"
+                    onLoadedMetadata={() => setPreviewReady(true)}
+                    onSeeked={() => setPreviewReady(true)}
+                  />
+                  {!previewReady && (
+                    <div className="absolute inset-0 grid place-items-center bg-black/40">
+                      <Loader2 className="w-5 h-5 text-white/70 animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="bg-black/90 text-white text-[11px] px-2 py-0.5 rounded font-mono">{fmt(hoverTime)}</div>
               </div>
             </>
           )}
-          <div className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-red-500 shadow-lg shadow-red-500/50 opacity-0 group-hover/bar:opacity-100 transition" style={{ left: `calc(${pct}% - 7px)` }} />
+          <div className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-red-500 shadow-lg shadow-red-500/50 opacity-0 group-hover/bar:opacity-100 transition pointer-events-none" style={{ left: `calc(${pct}% - 7px)` }} />
         </div>
+
 
         <div className="flex items-center gap-1 text-white" onClick={(e) => e.stopPropagation()}>
           <button onClick={togglePlay} className="p-2 hover:bg-white/10 rounded-lg transition" aria-label="Play/Pause">
