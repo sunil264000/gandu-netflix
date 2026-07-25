@@ -27,6 +27,8 @@ const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
+  const previewRef = useRef<HTMLVideoElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
@@ -47,12 +49,16 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const [loading, setLoading] = useState(true);
   const [menu, setMenu] = useState<null | "rate" | "settings">(null);
   const [hoverPct, setHoverPct] = useState<number | null>(null);
+  const [scrubbing, setScrubbing] = useState(false);
+  const [previewReady, setPreviewReady] = useState(false);
   const [seekFlash, setSeekFlash] = useState<null | "back" | "fwd">(null);
   const [toast, setToast] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastReport = useRef(0);
   const lastTap = useRef<{ t: number; side: "l" | "r" | null }>({ t: 0, side: null });
+
 
   const kickHide = useCallback(() => {
     setShowControls(true);
