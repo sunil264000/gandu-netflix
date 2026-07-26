@@ -50,14 +50,17 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const [menu, setMenu] = useState<null | "rate" | "settings">(null);
   const [hoverPct, setHoverPct] = useState<number | null>(null);
   const [scrubbing, setScrubbing] = useState(false);
-  const [previewReady, setPreviewReady] = useState(false);
+  const [previewFrame, setPreviewFrame] = useState<string | null>(null);
   const [seekFlash, setSeekFlash] = useState<null | "back" | "fwd">(null);
   const [toast, setToast] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snapCache = useRef<Map<number, string>>(new Map());
+  const lastSnap = useRef(0);
   const lastReport = useRef(0);
   const lastTap = useRef<{ t: number; side: "l" | "r" | null }>({ t: 0, side: null });
+  const SNAP_BUCKET = 2; // seconds per cached snapshot
 
 
   const kickHide = useCallback(() => {
