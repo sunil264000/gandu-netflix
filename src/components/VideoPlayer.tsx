@@ -93,6 +93,24 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
       setCurrent(v.currentTime);
       if (v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1));
       if (onProgress && v.currentTime - lastReport.current > 5) { lastReport.current = v.currentTime; onProgress(v.currentTime, v.duration); }
+      // Capture a snapshot at most every ~1s while playing, bucket by SNAP_BUCKET
+      const now = performance.now();
+      if (!v.paused && !v.seeking && v.videoWidth > 0 && now - lastSnap.current > 900) {
+        lastSnap.current = now;
+        const bucket = Math.floor(v.currentTime / SNAP_BUCKET);
+        if (!snapCache.current.has(bucket)) {
+          try {
+            const c = document.createElement("canvas");
+            const W = 240; const H = Math.round((v.videoHeight / v.videoWidth) * W) || 135;
+            c.width = W; c.height = H;
+            const ctx = c.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(v, 0, 0, W, H);
+              snapCache.current.set(bucket, c.toDataURL("image/jpeg", 0.6));
+            }
+          } catch { /* CORS or codec issue — ignore */ }
+        }
+      }
     };
     const onProg = () => {
       if (v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1));
