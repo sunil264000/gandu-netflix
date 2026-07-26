@@ -356,22 +356,41 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
                 className="absolute -top-[124px] -translate-x-1/2 pointer-events-none flex flex-col items-center gap-1"
                 style={{ left: `min(max(${hoverPct}%, 84px), calc(100% - 84px))` }}
               >
-                <div className="w-40 aspect-video bg-black rounded-md overflow-hidden ring-1 ring-white/20 shadow-2xl relative">
-                  <video
-                    ref={previewRef}
-                    src={src}
-                    className="w-full h-full object-contain"
-                    muted
-                    playsInline
-                    preload="metadata"
-                    crossOrigin="anonymous"
-                    onLoadedMetadata={() => setPreviewReady(true)}
-                    onSeeked={() => setPreviewReady(true)}
-                  />
-                  {!previewReady && (
-                    <div className="absolute inset-0 grid place-items-center bg-black/40">
-                      <Loader2 className="w-5 h-5 text-white/70 animate-spin" />
-                    </div>
+                <div className="w-44 aspect-video bg-black rounded-md overflow-hidden ring-1 ring-white/20 shadow-2xl relative">
+                  {previewFrame ? (
+                    <img src={previewFrame} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <>
+                      <video
+                        ref={previewRef}
+                        src={src}
+                        className="w-full h-full object-contain"
+                        muted
+                        playsInline
+                        preload="metadata"
+                        crossOrigin="anonymous"
+                        onSeeked={(e) => {
+                          const pv = e.currentTarget;
+                          if (pv.videoWidth === 0) return;
+                          try {
+                            const c = document.createElement("canvas");
+                            const W = 240; const H = Math.round((pv.videoHeight / pv.videoWidth) * W) || 135;
+                            c.width = W; c.height = H;
+                            const ctx = c.getContext("2d");
+                            if (ctx) {
+                              ctx.drawImage(pv, 0, 0, W, H);
+                              const url = c.toDataURL("image/jpeg", 0.6);
+                              const bucket = Math.round(pv.currentTime / SNAP_BUCKET);
+                              snapCache.current.set(bucket, url);
+                              setPreviewFrame(url);
+                            }
+                          } catch {}
+                        }}
+                      />
+                      <div className="absolute inset-0 grid place-items-center bg-black/40">
+                        <Loader2 className="w-5 h-5 text-white/70 animate-spin" />
+                      </div>
+                    </>
                   )}
                 </div>
                 <div className="bg-black/90 text-white text-[11px] px-2 py-0.5 rounded font-mono">{fmt(hoverTime)}</div>
