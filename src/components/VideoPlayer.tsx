@@ -343,7 +343,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
               if ((e.currentTarget as any)._wasPlaying) vidRef.current?.play().catch(() => {});
             }
           }}
-          onPointerLeave={() => { if (!scrubbing) setHoverPct(null); }}
+          onPointerLeave={() => { if (!scrubbing) { setHoverPct(null); setPreviewFrame(null); } }}
         >
           <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-white/20 rounded-full group-hover/bar:h-1.5 transition-all" />
           <div className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 bg-white/40 rounded-full group-hover/bar:h-1.5 transition-all pointer-events-none" style={{ width: `${bufPct}%` }} />
