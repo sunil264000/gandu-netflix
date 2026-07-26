@@ -50,14 +50,17 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const [menu, setMenu] = useState<null | "rate" | "settings">(null);
   const [hoverPct, setHoverPct] = useState<number | null>(null);
   const [scrubbing, setScrubbing] = useState(false);
-  const [previewReady, setPreviewReady] = useState(false);
+  const [previewFrame, setPreviewFrame] = useState<string | null>(null);
   const [seekFlash, setSeekFlash] = useState<null | "back" | "fwd">(null);
   const [toast, setToast] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snapCache = useRef<Map<number, string>>(new Map());
+  const lastSnap = useRef(0);
   const lastReport = useRef(0);
   const lastTap = useRef<{ t: number; side: "l" | "r" | null }>({ t: 0, side: null });
+  const SNAP_BUCKET = 2; // seconds per cached snapshot
 
 
   const kickHide = useCallback(() => {
@@ -81,6 +84,12 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   }, []); // eslint-disable-line
 
   useEffect(() => {
+    snapCache.current.clear();
+    setPreviewFrame(null);
+    lastSnap.current = 0;
+  }, [src]);
+
+  useEffect(() => {
     const v = vidRef.current; if (!v) return;
     const onLoaded = () => {
       setDuration(v.duration); setLoading(false);
@@ -90,6 +99,24 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
       setCurrent(v.currentTime);
       if (v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1));
       if (onProgress && v.currentTime - lastReport.current > 5) { lastReport.current = v.currentTime; onProgress(v.currentTime, v.duration); }
+      // Capture a snapshot at most every ~1s while playing, bucket by SNAP_BUCKET
+      const now = performance.now();
+      if (!v.paused && !v.seeking && v.videoWidth > 0 && now - lastSnap.current > 900) {
+        lastSnap.current = now;
+        const bucket = Math.floor(v.currentTime / SNAP_BUCKET);
+        if (!snapCache.current.has(bucket)) {
+          try {
+            const c = document.createElement("canvas");
+            const W = 240; const H = Math.round((v.videoHeight / v.videoWidth) * W) || 135;
+            c.width = W; c.height = H;
+            const ctx = c.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(v, 0, 0, W, H);
+              snapCache.current.set(bucket, c.toDataURL("image/jpeg", 0.6));
+            }
+          } catch { /* CORS or codec issue — ignore */ }
+        }
+      }
     };
     const onProg = () => {
       if (v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1));
@@ -294,14 +321,26 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
             const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
             setHoverPct(p * 100);
             if (scrubbing) setPos(p * duration);
-            // Debounced preview seek
+            // Resolve preview frame from snapshot cache (nearest bucket)
+            const targetTime = p * duration;
+            const bucket = Math.round(targetTime / SNAP_BUCKET);
+            let best: string | null = snapCache.current.get(bucket) ?? null;
+            if (!best) {
+              let bestDist = Infinity;
+              for (const [k, v2] of snapCache.current) {
+                const d = Math.abs(k - bucket);
+                if (d < bestDist) { bestDist = d; best = v2; }
+              }
+            }
+            setPreviewFrame(best);
+            // Debounced preview seek — fallback for unseen positions
             if (previewSeekTimer.current) clearTimeout(previewSeekTimer.current);
             previewSeekTimer.current = setTimeout(() => {
               const pv = previewRef.current;
               if (pv && isFinite(pv.duration)) {
                 try { pv.currentTime = p * pv.duration; } catch {}
               }
-            }, 60);
+            }, 120);
           }}
           onPointerUp={(e) => {
             (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
@@ -310,7 +349,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
               if ((e.currentTarget as any)._wasPlaying) vidRef.current?.play().catch(() => {});
             }
           }}
-          onPointerLeave={() => { if (!scrubbing) setHoverPct(null); }}
+          onPointerLeave={() => { if (!scrubbing) { setHoverPct(null); setPreviewFrame(null); } }}
         >
           <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-white/20 rounded-full group-hover/bar:h-1.5 transition-all" />
           <div className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 bg-white/40 rounded-full group-hover/bar:h-1.5 transition-all pointer-events-none" style={{ width: `${bufPct}%` }} />
@@ -323,22 +362,41 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
                 className="absolute -top-[124px] -translate-x-1/2 pointer-events-none flex flex-col items-center gap-1"
                 style={{ left: `min(max(${hoverPct}%, 84px), calc(100% - 84px))` }}
               >
-                <div className="w-40 aspect-video bg-black rounded-md overflow-hidden ring-1 ring-white/20 shadow-2xl relative">
-                  <video
-                    ref={previewRef}
-                    src={src}
-                    className="w-full h-full object-contain"
-                    muted
-                    playsInline
-                    preload="metadata"
-                    crossOrigin="anonymous"
-                    onLoadedMetadata={() => setPreviewReady(true)}
-                    onSeeked={() => setPreviewReady(true)}
-                  />
-                  {!previewReady && (
-                    <div className="absolute inset-0 grid place-items-center bg-black/40">
-                      <Loader2 className="w-5 h-5 text-white/70 animate-spin" />
-                    </div>
+                <div className="w-44 aspect-video bg-black rounded-md overflow-hidden ring-1 ring-white/20 shadow-2xl relative">
+                  {previewFrame ? (
+                    <img src={previewFrame} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <>
+                      <video
+                        ref={previewRef}
+                        src={src}
+                        className="w-full h-full object-contain"
+                        muted
+                        playsInline
+                        preload="metadata"
+                        crossOrigin="anonymous"
+                        onSeeked={(e) => {
+                          const pv = e.currentTarget;
+                          if (pv.videoWidth === 0) return;
+                          try {
+                            const c = document.createElement("canvas");
+                            const W = 240; const H = Math.round((pv.videoHeight / pv.videoWidth) * W) || 135;
+                            c.width = W; c.height = H;
+                            const ctx = c.getContext("2d");
+                            if (ctx) {
+                              ctx.drawImage(pv, 0, 0, W, H);
+                              const url = c.toDataURL("image/jpeg", 0.6);
+                              const bucket = Math.round(pv.currentTime / SNAP_BUCKET);
+                              snapCache.current.set(bucket, url);
+                              setPreviewFrame(url);
+                            }
+                          } catch {}
+                        }}
+                      />
+                      <div className="absolute inset-0 grid place-items-center bg-black/40">
+                        <Loader2 className="w-5 h-5 text-white/70 animate-spin" />
+                      </div>
+                    </>
                   )}
                 </div>
                 <div className="bg-black/90 text-white text-[11px] px-2 py-0.5 rounded font-mono">{fmt(hoverTime)}</div>
