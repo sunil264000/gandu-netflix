@@ -84,6 +84,12 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   }, []); // eslint-disable-line
 
   useEffect(() => {
+    snapCache.current.clear();
+    setPreviewFrame(null);
+    lastSnap.current = 0;
+  }, [src]);
+
+  useEffect(() => {
     const v = vidRef.current; if (!v) return;
     const onLoaded = () => {
       setDuration(v.duration); setLoading(false);
