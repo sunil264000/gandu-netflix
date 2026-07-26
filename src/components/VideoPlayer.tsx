@@ -315,14 +315,26 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
             const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
             setHoverPct(p * 100);
             if (scrubbing) setPos(p * duration);
-            // Debounced preview seek
+            // Resolve preview frame from snapshot cache (nearest bucket)
+            const targetTime = p * duration;
+            const bucket = Math.round(targetTime / SNAP_BUCKET);
+            let best: string | null = snapCache.current.get(bucket) ?? null;
+            if (!best) {
+              let bestDist = Infinity;
+              for (const [k, v2] of snapCache.current) {
+                const d = Math.abs(k - bucket);
+                if (d < bestDist) { bestDist = d; best = v2; }
+              }
+            }
+            setPreviewFrame(best);
+            // Debounced preview seek — fallback for unseen positions
             if (previewSeekTimer.current) clearTimeout(previewSeekTimer.current);
             previewSeekTimer.current = setTimeout(() => {
               const pv = previewRef.current;
               if (pv && isFinite(pv.duration)) {
                 try { pv.currentTime = p * pv.duration; } catch {}
               }
-            }, 60);
+            }, 120);
           }}
           onPointerUp={(e) => {
             (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
