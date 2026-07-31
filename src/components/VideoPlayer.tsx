@@ -502,7 +502,27 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
               </button>
               {menu === "settings" && (
                 <div className="absolute bottom-full right-0 mb-2 bg-black/95 border border-white/10 rounded-lg p-3 shadow-xl w-64 text-[11px] text-white/80">
+                  <div className="text-white font-semibold mb-2 text-xs">Quality &amp; display</div>
+                  <div className="grid grid-cols-2 gap-y-1 mb-3">
+                    <span>Source</span>
+                    <span className="text-right font-mono text-white">{res.w ? `${res.w}×${res.h}` : "—"}</span>
+                    <span>Mode</span>
+                    <span className="text-right font-mono text-red-400">Original (no re-encode)</span>
+                  </div>
+                  <button
+                    onClick={toggleFit}
+                    className="w-full mb-1.5 px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-left text-white text-[11px] font-medium transition"
+                  >
+                    Screen fit: <span className="font-mono">{fit === "cover" ? "Fill" : "Fit"}</span>
+                  </button>
+                  <button
+                    onClick={() => setStats((s) => !s)}
+                    className="w-full mb-3 px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-left text-white text-[11px] font-medium transition"
+                  >
+                    Stats for nerds: <span className="font-mono">{stats ? "On" : "Off"}</span>
+                  </button>
                   <div className="text-white font-semibold mb-2 text-xs">Keyboard shortcuts</div>
+
                   <div className="grid grid-cols-2 gap-y-1">
                     <span>Play / Pause</span><span className="text-right font-mono">Space · K</span>
                     <span>Seek ±5s</span><span className="text-right font-mono">← →</span>
