@@ -78,9 +78,14 @@ export function VideoPlayer({
   const [stats, setStats] = useState(false);
   const [noAudio, setNoAudio] = useState(false);
   const [noAudioDismissed, setNoAudioDismissed] = useState(false);
+  const altRef = useRef<HTMLAudioElement>(null);
+  const [useAlt, setUseAlt] = useState(!!audioSrc);
+  const [altReady, setAltReady] = useState(false);
+  const [drift, setDrift] = useState(0);
 
   const [res, setRes] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [stalled, setStalled] = useState(false);
+
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snapCache = useRef<Map<number, string>>(new Map());
