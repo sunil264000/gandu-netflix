@@ -229,7 +229,7 @@ function AudioTrackControl({ videoId, hasTrack, onDone }: { videoId: string; has
         setStage("Converting");
         const res = await extractCompatibleAudio(file, {
           signal: ctrl.signal,
-          onProgress: (p) => {
+          onProgress: (p: TranscodeProgress) => {
             setPct(p.pct);
             setStage(p.phase === "converting" ? "Converting" : p.phase === "loading" ? "Engine" : "Reading");
           },
