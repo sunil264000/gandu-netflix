@@ -53,6 +53,13 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
   const [seekFlash, setSeekFlash] = useState<null | "back" | "fwd">(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [fit, setFit] = useState<"contain" | "cover">(() => {
+    if (typeof window === "undefined") return "contain";
+    return localStorage.getItem("vault:fit") === "cover" ? "cover" : "contain";
+  });
+  const [stats, setStats] = useState(false);
+  const [res, setRes] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const [stalled, setStalled] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -61,6 +68,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const lastReport = useRef(0);
   const lastTap = useRef<{ t: number; side: "l" | "r" | null }>({ t: 0, side: null });
   const SNAP_BUCKET = 2; // seconds per cached snapshot
+
 
 
   const kickHide = useCallback(() => {
