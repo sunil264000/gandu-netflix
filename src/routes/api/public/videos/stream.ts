@@ -56,8 +56,9 @@ type StreamVideo = {
 const videoCache = new Map<string, { v: StreamVideo; exp: number }>();
 const urlCache = new Map<string, { url: string; exp: number }>();
 const VIDEO_CACHE_MS = 60_000;
-const seqCache = new Map<string, { nextByte: number; exp: number }>();
-const SEQ_CACHE_MS = 30_000;
+const seqCache = new Map<string, { nextByte: number; window: number; exp: number }>();
+const SEQ_CACHE_MS = 120_000;
+
 
 const BASE_HEADERS = {
   "accept-ranges": "bytes",
