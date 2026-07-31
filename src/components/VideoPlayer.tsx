@@ -439,38 +439,11 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
                   {previewFrame ? (
                     <img src={previewFrame} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <>
-                      <video
-                        ref={previewRef}
-                        src={src}
-                        className="w-full h-full object-contain"
-                        muted
-                        playsInline
-                        preload="metadata"
-                        crossOrigin="anonymous"
-                        onSeeked={(e) => {
-                          const pv = e.currentTarget;
-                          if (pv.videoWidth === 0) return;
-                          try {
-                            const c = document.createElement("canvas");
-                            const W = 240; const H = Math.round((pv.videoHeight / pv.videoWidth) * W) || 135;
-                            c.width = W; c.height = H;
-                            const ctx = c.getContext("2d");
-                            if (ctx) {
-                              ctx.drawImage(pv, 0, 0, W, H);
-                              const url = c.toDataURL("image/jpeg", 0.6);
-                              const bucket = Math.round(pv.currentTime / SNAP_BUCKET);
-                              snapCache.current.set(bucket, url);
-                              setPreviewFrame(url);
-                            }
-                          } catch {}
-                        }}
-                      />
-                      <div className="absolute inset-0 grid place-items-center bg-black/40">
-                        <Loader2 className="w-5 h-5 text-white/70 animate-spin" />
-                      </div>
-                    </>
+                    <div className="absolute inset-0 grid place-items-center bg-zinc-900 text-[10px] text-white/50 font-mono">
+                      {fmt(hoverTime)}
+                    </div>
                   )}
+
                 </div>
                 <div className="bg-black/90 text-white text-[11px] px-2 py-0.5 rounded font-mono">{fmt(hoverTime)}</div>
               </div>
