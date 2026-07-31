@@ -213,7 +213,7 @@ function AudioTrackControl({ videoId, hasTrack, onDone }: { videoId: string; has
     try {
       const ext = (file.name.split(".").pop() || "m4a").toLowerCase();
       const path = `audio/${videoId}.${ext}`;
-      await uploadAny("videos", path, file, (p) => setPct(p));
+      await uploadAny("videos", path, file, (p: number) => setPct(p));
       await _attach({ data: { videoId, path, label: `Compatible audio (${ext.toUpperCase()})` } });
       setPct(null);
       onDone();
