@@ -146,7 +146,7 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     const contentLength = range.end - range.start + 1;
     const headers = new Headers({
       ...BASE_HEADERS,
-      "content-type": video.mime_type || "application/octet-stream",
+      "content-type": normalizeMime(video.mime_type, video.storage_path),
       "content-length": String(contentLength),
       "cache-control": "public, max-age=31536000, immutable",
       "content-range": `bytes ${range.start}-${range.end}/${total}`,
