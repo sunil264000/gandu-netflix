@@ -203,10 +203,11 @@ export function VideoPlayer({
       if (v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1));
       // Detect an undecodable audio track (Dolby DD+/EAC3, DTS, TrueHD in MKV):
       // video decodes fine but zero audio bytes are ever decoded.
-      if (!v.paused && v.currentTime > 4) {
+      if (!audioSrc && !v.paused && v.currentTime > 4) {
         const decoded = (v as unknown as { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount;
         if (typeof decoded === "number") setNoAudio(decoded === 0);
       }
+
 
       if (onProgress && v.currentTime - lastReport.current > 5) { lastReport.current = v.currentTime; onProgress(v.currentTime, v.duration); }
       // Capture a snapshot at most every ~1s while playing, bucket by SNAP_BUCKET
