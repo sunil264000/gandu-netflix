@@ -27,6 +27,13 @@ const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
+  const previewRef = useRef<HTMLVideoElement>(null);
+  const sid = useMemo(() => Math.random().toString(36).slice(2, 10), []);
+  const playSrc = useMemo(() => `${src}${src.includes("?") ? "&" : "?"}sid=${sid}`, [src, sid]);
+  // A second, throttled element used only to render real frames while scrubbing.
+  // It streams in "preview" mode so it never disturbs the main sequential read.
+  const previewSrc = useMemo(() => `${src}${src.includes("?") ? "&" : "?"}preview=1`, [src]);
+  const previewReq = useRef<{ target: number | null; busy: boolean; timer: ReturnType<typeof setTimeout> | null }>({ target: null, busy: false, timer: null });
   const barRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -86,6 +93,74 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     toastTimer.current = setTimeout(() => setToast(null), 900);
   }, []);
 
+  const captureFrom = useCallback((el: HTMLVideoElement, atTime: number) => {
+    if (!el.videoWidth) return null;
+    try {
+      const c = document.createElement("canvas");
+      const W = 256;
+      const H = Math.round((el.videoHeight / el.videoWidth) * W) || 144;
+      c.width = W; c.height = H;
+      const ctx = c.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(el, 0, 0, W, H);
+      const url = c.toDataURL("image/jpeg", 0.62);
+      snapCache.current.set(Math.round(atTime / SNAP_BUCKET), url);
+      return url;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const nearestSnapshot = useCallback((t: number) => {
+    const bucket = Math.round(t / SNAP_BUCKET);
+    const exact = snapCache.current.get(bucket);
+    if (exact) return exact;
+    let best: string | null = null; let bestDist = Infinity;
+    for (const [k, v2] of snapCache.current) {
+      const d = Math.abs(k - bucket);
+      if (d < bestDist) { bestDist = d; best = v2; }
+    }
+    // Only reuse a neighbouring frame if it's genuinely close in time.
+    return bestDist <= 6 ? best : null;
+  }, []);
+
+  // Real-time scrubbing: throttled seeks on the hidden preview decoder so the
+  // tooltip shows the actual frame under the cursor, not one cached still.
+  const pumpPreview = useCallback(() => {
+    const el = previewRef.current;
+    const req = previewReq.current;
+    if (!el || req.busy || req.target == null) return;
+    const target = req.target;
+    req.target = null;
+    req.busy = true;
+
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      el.removeEventListener("seeked", onSeeked);
+      req.busy = false;
+      if (req.target != null) pumpPreview();
+    };
+    const onSeeked = () => {
+      const url = captureFrom(el, target);
+      if (url) setPreviewFrame(url);
+      finish();
+    };
+    el.addEventListener("seeked", onSeeked);
+    setTimeout(finish, 2500);
+    try { el.currentTime = target; } catch { finish(); }
+  }, [captureFrom]);
+
+  const requestPreviewAt = useCallback((t: number) => {
+    const cached = nearestSnapshot(t);
+    if (cached) setPreviewFrame(cached);
+    const req = previewReq.current;
+    req.target = t;
+    if (req.timer) clearTimeout(req.timer);
+    req.timer = setTimeout(() => pumpPreview(), 80);
+  }, [nearestSnapshot, pumpPreview]);
+
   useEffect(() => {
     const v = vidRef.current; if (!v) return;
     v.volume = volume;
@@ -96,6 +171,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     snapCache.current.clear();
     setPreviewFrame(null);
     lastSnap.current = 0;
+    previewReq.current = { target: null, busy: false, timer: null };
   }, [src]);
 
   useEffect(() => {
@@ -318,7 +394,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     >
       <video
         ref={vidRef}
-        src={src}
+        src={playSrc}
         poster={poster ?? undefined}
         className={`w-full h-full touch-manipulation ${fit === "cover" ? "object-cover" : "object-contain"}`}
         style={{ imageRendering: "auto" }}
@@ -331,6 +407,19 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
           <track key={i} kind="subtitles" src={t.src} srcLang={t.srclang} label={t.label} default={t.default} />
         ))}
       </video>
+
+      {/* Hidden scrub-preview decoder (muted, never plays) */}
+      <video
+        ref={previewRef}
+        src={previewSrc}
+        muted
+        playsInline
+        preload="metadata"
+        crossOrigin="anonymous"
+        aria-hidden
+        tabIndex={-1}
+        style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none", left: -9999, top: -9999 }}
+      />
 
 
       {loading && (
@@ -426,6 +515,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
             const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
             setHoverPct(p * 100);
             setPos(p * duration);
+            requestPreviewAt(p * duration);
           }}
           onPointerMove={(e) => {
             const bar = barRef.current; if (!bar || !duration) return;
@@ -433,18 +523,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
             const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
             setHoverPct(p * 100);
             if (scrubbing) setPos(p * duration);
-            // Resolve preview frame from snapshot cache (nearest bucket)
-            const targetTime = p * duration;
-            const bucket = Math.round(targetTime / SNAP_BUCKET);
-            let best: string | null = snapCache.current.get(bucket) ?? null;
-            if (!best) {
-              let bestDist = Infinity;
-              for (const [k, v2] of snapCache.current) {
-                const d = Math.abs(k - bucket);
-                if (d < bestDist) { bestDist = d; best = v2; }
-              }
-            }
-            setPreviewFrame(best);
+            requestPreviewAt(p * duration);
 
           }}
           onPointerUp={(e) => {
