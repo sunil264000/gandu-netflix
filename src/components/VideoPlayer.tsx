@@ -347,6 +347,37 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
         </div>
       )}
 
+      {noAudio && !noAudioDismissed && (
+        <div
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-[90%] bg-black/85 backdrop-blur border border-primary/40 rounded-xl px-4 py-3 text-xs text-white/85 shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="font-semibold text-white mb-1">No sound? This file's audio track can't be decoded here</p>
+          <p className="text-white/60 leading-relaxed">
+            It uses Dolby Digital+/DTS/TrueHD, which browsers can't play. The video is fine — open the
+            original in a desktop player (VLC/MPV) for full audio.
+          </p>
+          <div className="flex gap-2 mt-2">
+            <a
+              href={src}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium"
+            >
+              Open original
+            </a>
+            <button
+              type="button"
+              onClick={() => setNoAudioDismissed(true)}
+              className="px-3 py-1.5 rounded-lg bg-white/10 text-white/80"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+
       {stats && (
         <div className="absolute top-4 right-4 bg-black/80 backdrop-blur rounded-lg px-3 py-2 text-[10px] font-mono text-white/80 leading-relaxed pointer-events-none">
           <div>res <span className="text-white">{res.w ? `${res.w}×${res.h}` : "—"}</span></div>
