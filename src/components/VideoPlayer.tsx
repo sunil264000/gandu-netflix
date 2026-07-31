@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize, PictureInPicture2,
   SkipBack, SkipForward, Loader2, Settings, Gauge, Rewind, FastForward,
+  AudioLines, ExternalLink,
 } from "lucide-react";
 
 type CaptionTrack = { src: string; label: string; srclang: string; default?: boolean };
@@ -14,6 +15,12 @@ type Props = {
   onEnded?: () => void;
   autoPlay?: boolean;
   captions?: CaptionTrack[];
+  /** Optional browser-friendly companion soundtrack (AAC) for files whose
+   *  original track is DTS/TrueHD/E-AC-3 and cannot be decoded by browsers. */
+  audioSrc?: string | null;
+  audioLabel?: string | null;
+  /** .m3u handoff for desktop players (original audio, no re-encode). */
+  playlistUrl?: string | null;
 };
 
 function fmt(t: number) {
@@ -23,8 +30,13 @@ function fmt(t: number) {
 }
 
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const DRIFT_TOLERANCE = 0.25; // seconds of allowed A/V drift before resync
 
-export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions }: Props) {
+export function VideoPlayer({
+  src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions,
+  audioSrc, audioLabel, playlistUrl,
+}: Props) {
+
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
