@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import * as tus from "tus-js-client";
 import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp, Activity } from "lucide-react";
-import { createVideoRecord, createCategory, listCategories } from "@/lib/videos.functions";
+import { createVideoRecord, createCategory, listCategories, attachAudioTrack } from "@/lib/videos.functions";
+import { extractCompatibleAudio, likelyNeedsCompatibleAudio, transcodeSupported, type TranscodeProgress } from "@/lib/audioTranscode";
 import { createUploadJob, updateUploadJob } from "@/lib/uploadTracker";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -74,7 +75,7 @@ type Job = {
   id: string;
   file: File;
   progress: number;
-  status: "queued" | "thumb" | "uploading" | "saving" | "done" | "error";
+  status: "queued" | "thumb" | "uploading" | "saving" | "audio" | "done" | "error";
   message?: string;
   seriesLabel?: string;
   categoryOverride?: string | null;
@@ -185,6 +186,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
   const inputRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
   const _create = useServerFn(createVideoRecord);
+  const _attachAudio = useServerFn(attachAudioTrack);
   const _createCat = useServerFn(createCategory);
   const _listCats = useServerFn(listCategories);
   const qc = useQueryClient();
@@ -217,7 +219,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       lastRemoteT = now;
       lastRemoteBytes = bytes;
       updateUploadJob(job.id, {
-        status: patch.status,
+        status: patch.status === "audio" ? "saving" : patch.status,
         message: patch.message,
         progress: patch.progress,
         uploadedBytes: Math.round(bytes),
@@ -280,7 +282,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
       const title = file.name.replace(/\.[^.]+$/, "");
       const effectiveCategoryId = job.categoryOverride !== undefined ? job.categoryOverride : categoryId;
-      await _create({ data: {
+      const created = await _create({ data: {
         title, storagePath, thumbnailPath, sizeBytes: file.size, mimeType: file.type || undefined,
         extension: ext || undefined, durationSec: meta.duration || undefined,
         width: meta.width || undefined, height: meta.height || undefined,
@@ -290,6 +292,36 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       updateJob(job.id, { status: "done", message: "Uploaded" });
       remote({ status: "done", message: "Uploaded", progress: 100, force: true });
       onDone();
+
+      // ---- Automatic browser-side audio rescue -------------------------------
+      // Release rips (MKV/M2TS) usually carry DTS / TrueHD / E-AC3, which no
+      // browser can decode. While we still hold the local file, convert its
+      // soundtrack to AAC with WebAssembly ffmpeg and attach it as a companion
+      // track — exactly what Netflix does, just done client-side.
+      if (created?.id && transcodeSupported() && likelyNeedsCompatibleAudio(file.name)) {
+        try {
+          updateJob(job.id, { status: "audio", message: "Preparing browser audio…", progress: 0 });
+          const res = await extractCompatibleAudio(file, {
+            onProgress: (p: TranscodeProgress) =>
+              updateJob(job.id, {
+                progress: p.pct,
+                message: p.phase === "converting" ? `Converting audio ${p.pct.toFixed(0)}%` : "Loading audio engine…",
+              }),
+          });
+          updateJob(job.id, { message: "Uploading audio track…", progress: 0 });
+          const audioPath = `audio/${created.id}.${res.ext}`;
+          await uploadObject("videos", audioPath, res.blob, "audio/mp4");
+          await _attachAudio({ data: { videoId: created.id, path: audioPath, label: res.label } });
+          updateJob(job.id, { status: "done", message: "Uploaded · audio ready", progress: 100 });
+          onDone();
+        } catch (e) {
+          updateJob(job.id, {
+            status: "done",
+            message: `Uploaded · audio conversion skipped (${(e as Error).message.slice(0, 60)})`,
+            progress: 100,
+          });
+        }
+      }
     } catch (e: unknown) {
       const msg = (e as Error).message || "Upload failed";
       updateJob(job.id, { status: "error", message: msg });
@@ -297,7 +329,8 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
     } finally {
       cancellersRef.current.delete(job.id);
     }
-  }, [_create, categoryId, onDone]);
+  }, [_create, _attachAudio, categoryId, onDone]);
+
 
 
   const addFiles = (files: FileList | null) => {
@@ -542,6 +575,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
               j.status === "thumb" ? "Generating thumbnail" :
               j.status === "uploading" ? "Uploading" :
               j.status === "saving" ? "Finalizing" :
+              j.status === "audio" ? (j.message || "Preparing browser audio") :
               j.status === "done" ? "Done" : "Error";
             return (
               <div key={j.id} className="p-3 rounded-xl bg-white/5 border border-white/10">

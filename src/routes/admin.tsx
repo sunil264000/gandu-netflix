@@ -11,6 +11,8 @@ import {
   attachAudioTrack, removeAudioTrack,
 } from "@/lib/videos.functions";
 import { uploadAny } from "@/lib/storageUpload";
+import { extractCompatibleAudio, type TranscodeProgress } from "@/lib/audioTranscode";
+
 import { autoPosterSweep } from "@/lib/posters.functions";
 
 import { useLiveVideos } from "@/hooks/useLiveVideos";
@@ -204,42 +206,86 @@ function AudioTrackControl({ videoId, hasTrack, onDone }: { videoId: string; has
   const _attach = useServerFn(attachAudioTrack);
   const _remove = useServerFn(removeAudioTrack);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [pct, setPct] = useState<number | null>(null);
+  const [stage, setStage] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
+
+  const isAudioFile = (f: File) =>
+    f.type.startsWith("audio/") || /\.(m4a|aac|mp3|opus|ogg|oga|flac|wav)$/i.test(f.name);
 
   const pick = async (file: File) => {
     setErr(null);
     setPct(0);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     try {
-      const ext = (file.name.split(".").pop() || "m4a").toLowerCase();
+      let payload: Blob = file;
+      let ext = (file.name.split(".").pop() || "m4a").toLowerCase();
+      let label = `Compatible audio (${ext.toUpperCase()})`;
+
+      if (!isAudioFile(file)) {
+        // A video file was picked — convert its soundtrack to AAC right here in the browser.
+        setStage("Converting");
+        const res = await extractCompatibleAudio(file, {
+          signal: ctrl.signal,
+          onProgress: (p: TranscodeProgress) => {
+            setPct(p.pct);
+            setStage(p.phase === "converting" ? "Converting" : p.phase === "loading" ? "Engine" : "Reading");
+          },
+        });
+        payload = res.blob;
+        ext = res.ext;
+        label = res.label;
+      }
+
+      setStage("Uploading");
+      setPct(0);
       const path = `audio/${videoId}.${ext}`;
-      await uploadAny("videos", path, file, (p: number) => setPct(p));
-      await _attach({ data: { videoId, path, label: `Compatible audio (${ext.toUpperCase()})` } });
+      const toUpload = new File([payload], `${videoId}.${ext}`, { type: payload.type || "audio/mp4" });
+      await uploadAny("videos", path, toUpload, (p: number) => setPct(p));
+      await _attach({ data: { videoId, path, label } });
       setPct(null);
+      setStage("");
       onDone();
     } catch (e) {
       setPct(null);
-      setErr(e instanceof Error ? e.message : "Upload failed");
+      setStage("");
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      abortRef.current = null;
     }
   };
+
+  const busy = pct != null;
 
   return (
     <div className="flex items-center gap-1.5">
       <input
         ref={inputRef}
         type="file"
-        accept="audio/*,.m4a,.aac,.mp3,.opus,.webm"
+        accept="video/*,audio/*,.mkv,.m2ts,.ts,.avi,.m4a,.aac,.mp3,.opus"
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) pick(f); e.target.value = ""; }}
       />
       <button
-        onClick={() => inputRef.current?.click()}
-        title={hasTrack ? "Replace compatible audio track" : "Attach compatible AAC audio track"}
-        className={`px-2.5 py-1.5 rounded text-xs font-semibold transition ${hasTrack ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25" : "bg-white/10 hover:bg-white/20 text-white/70"}`}
+        onClick={() => (busy ? abortRef.current?.abort() : inputRef.current?.click())}
+        title={
+          busy
+            ? "Cancel"
+            : "Pick the original video file — its soundtrack is converted to AAC in your browser and attached automatically"
+        }
+        className={`px-2.5 py-1.5 rounded text-xs font-semibold transition whitespace-nowrap ${
+          busy
+            ? "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
+            : hasTrack
+              ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+              : "bg-white/10 hover:bg-white/20 text-white/70"
+        }`}
       >
-        {pct != null ? `${pct.toFixed(0)}%` : hasTrack ? "AAC ✓" : "+ Audio"}
+        {busy ? `${stage} ${pct!.toFixed(0)}%` : hasTrack ? "AAC ✓" : "Fix audio"}
       </button>
-      {hasTrack && (
+      {hasTrack && !busy && (
         <button
           onClick={async () => { await _remove({ data: { videoId } }); onDone(); }}
           title="Remove companion audio track"
@@ -252,6 +298,7 @@ function AudioTrackControl({ videoId, hasTrack, onDone }: { videoId: string; has
     </div>
   );
 }
+
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
