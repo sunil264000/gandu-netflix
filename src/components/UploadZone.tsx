@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import * as tus from "tus-js-client";
 import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp, Activity } from "lucide-react";
-import { createVideoRecord, createCategory, listCategories } from "@/lib/videos.functions";
+import { createVideoRecord, createCategory, listCategories, attachAudioTrack } from "@/lib/videos.functions";
+import { extractCompatibleAudio, likelyNeedsCompatibleAudio, transcodeSupported, type TranscodeProgress } from "@/lib/audioTranscode";
 import { createUploadJob, updateUploadJob } from "@/lib/uploadTracker";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -74,7 +75,7 @@ type Job = {
   id: string;
   file: File;
   progress: number;
-  status: "queued" | "thumb" | "uploading" | "saving" | "done" | "error";
+  status: "queued" | "thumb" | "uploading" | "saving" | "audio" | "done" | "error";
   message?: string;
   seriesLabel?: string;
   categoryOverride?: string | null;
@@ -185,6 +186,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
   const inputRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
   const _create = useServerFn(createVideoRecord);
+  const _attachAudio = useServerFn(attachAudioTrack);
   const _createCat = useServerFn(createCategory);
   const _listCats = useServerFn(listCategories);
   const qc = useQueryClient();
@@ -300,7 +302,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
         try {
           updateJob(job.id, { status: "audio", message: "Preparing browser audio…", progress: 0 });
           const res = await extractCompatibleAudio(file, {
-            onProgress: (p) =>
+            onProgress: (p: TranscodeProgress) =>
               updateJob(job.id, {
                 progress: p.pct,
                 message: p.phase === "converting" ? `Converting audio ${p.pct.toFixed(0)}%` : "Loading audio engine…",
