@@ -57,6 +57,9 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     return localStorage.getItem("vault:fit") === "cover" ? "cover" : "contain";
   });
   const [stats, setStats] = useState(false);
+  const [noAudio, setNoAudio] = useState(false);
+  const [noAudioDismissed, setNoAudioDismissed] = useState(false);
+
   const [res, setRes] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [stalled, setStalled] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
