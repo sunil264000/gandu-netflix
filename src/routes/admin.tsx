@@ -11,7 +11,8 @@ import {
   attachAudioTrack, removeAudioTrack,
 } from "@/lib/videos.functions";
 import { uploadAny } from "@/lib/storageUpload";
-import { extractCompatibleAudio, type TranscodeProgress } from "@/lib/audioTranscode";
+import { extractCompatibleAudio, extractCompatibleAudioFromServer, serverRescueSupported, type TranscodeProgress } from "@/lib/audioTranscode";
+import { UrlIngest } from "@/components/UrlIngest";
 
 import { autoPosterSweep } from "@/lib/posters.functions";
 
@@ -130,6 +131,8 @@ function Admin() {
           <UploadZone categoryId={selectedCat} onDone={refresh} />
         </section>
 
+        <UrlIngest categoryId={selectedCat} onDone={refresh} />
+
         {/* Categories */}
         <section>
           <h2 className="text-xl font-bold mb-3">Categories</h2>
@@ -180,6 +183,8 @@ function Admin() {
                 </div>
                 <AudioTrackControl
                   videoId={v.id}
+                  sizeBytes={Number(v.size_bytes)}
+                  fileName={(v.storage_path?.split("/").pop() ?? v.title) as string}
                   hasTrack={!!(v as { audio_path?: string | null }).audio_path}
                   onDone={refresh}
                 />
@@ -202,7 +207,7 @@ function Admin() {
   );
 }
 
-function AudioTrackControl({ videoId, hasTrack, onDone }: { videoId: string; hasTrack: boolean; onDone: () => void }) {
+function AudioTrackControl({ videoId, sizeBytes, fileName, hasTrack, onDone }: { videoId: string; sizeBytes: number; fileName: string; hasTrack: boolean; onDone: () => void }) {
   const _attach = useServerFn(attachAudioTrack);
   const _remove = useServerFn(removeAudioTrack);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -257,6 +262,41 @@ function AudioTrackControl({ videoId, hasTrack, onDone }: { videoId: string; has
     }
   };
 
+  const fromServer = async () => {
+    setErr(null);
+    setPct(0);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      setStage("Server copy");
+      const res = await extractCompatibleAudioFromServer({
+        streamUrl: `/api/public/videos/stream?id=${encodeURIComponent(videoId)}`,
+        fileName,
+        sizeBytes,
+        signal: ctrl.signal,
+        onProgress: (p: TranscodeProgress) => {
+          setPct(p.pct);
+          setStage(p.phase === "converting" ? "Converting" : p.phase === "loading" ? "Engine" : "Fetching");
+        },
+      });
+      setStage("Uploading");
+      setPct(0);
+      const path = `audio/${videoId}.${res.ext}`;
+      const toUpload = new File([res.blob], `${videoId}.${res.ext}`, { type: "audio/mp4" });
+      await uploadAny("videos", path, toUpload, (p: number) => setPct(p));
+      await _attach({ data: { videoId, path, label: res.label } });
+      setPct(null);
+      setStage("");
+      onDone();
+    } catch (e) {
+      setPct(null);
+      setStage("");
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
   const busy = pct != null;
 
   return (
@@ -285,6 +325,15 @@ function AudioTrackControl({ videoId, hasTrack, onDone }: { videoId: string; has
       >
         {busy ? `${stage} ${pct!.toFixed(0)}%` : hasTrack ? "AAC ✓" : "Fix audio"}
       </button>
+      {!busy && serverRescueSupported() && (
+        <button
+          onClick={fromServer}
+          title="Convert the soundtrack using the copy already stored on the server — nothing is needed from your computer"
+          className="whitespace-nowrap rounded bg-sky-500/15 px-2.5 py-1.5 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/25"
+        >
+          Server audio
+        </button>
+      )}
       {hasTrack && !busy && (
         <button
           onClick={async () => { await _remove({ data: { videoId } }); onDone(); }}

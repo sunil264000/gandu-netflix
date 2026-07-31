@@ -197,3 +197,127 @@ export async function extractCompatibleAudio(
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Server-sourced rescue: no local file required.
+//
+// The original file is pulled straight from our own storage through the stream
+// endpoint into the browser's origin-private filesystem (OPFS), which is a real
+// on-disk file — not RAM. That file is then mounted into ffmpeg exactly like a
+// picked file, so a 30 GB title converts without the user touching their disk.
+// ---------------------------------------------------------------------------
+
+const RESCUE_SEGMENT = 32 * 1024 * 1024;
+const RESCUE_PARALLEL = 4;
+
+export function serverRescueSupported() {
+  return (
+    typeof navigator !== "undefined" &&
+    typeof navigator.storage?.getDirectory === "function" &&
+    transcodeSupported()
+  );
+}
+
+async function pullToOpfs(
+  url: string,
+  fileName: string,
+  sizeBytes: number,
+  onProgress?: (p: TranscodeProgress) => void,
+  signal?: AbortSignal,
+): Promise<{ file: File; cleanup: () => Promise<void> }> {
+  const root = await navigator.storage.getDirectory();
+  const tmpName = `rescue-${Date.now()}-${fileName.replace(/[^\w.-]/g, "_")}`;
+  const handle = await root.getFileHandle(tmpName, { create: true });
+  const writable = await handle.createWritable();
+
+  let written = 0;
+  try {
+    for (let offset = 0; offset < sizeBytes; ) {
+      if (signal?.aborted) throw new Error("Cancelled");
+      const jobs: { start: number; end: number }[] = [];
+      for (let k = 0; k < RESCUE_PARALLEL && offset < sizeBytes; k += 1) {
+        const start = offset;
+        const end = Math.min(sizeBytes - 1, start + RESCUE_SEGMENT - 1);
+        jobs.push({ start, end });
+        offset = end + 1;
+      }
+      const parts = await Promise.all(
+        jobs.map(async ({ start, end }) => {
+          const res = await fetch(`${url}${url.includes("?") ? "&" : "?"}dl=1`, {
+            headers: { range: `bytes=${start}-${end}` },
+            signal,
+          });
+          if (!res.ok && res.status !== 206) throw new Error(`Source read failed (${res.status})`);
+          return new Uint8Array(await res.arrayBuffer());
+        }),
+      );
+      for (const part of parts) {
+        await writable.write(part);
+        written += part.byteLength;
+      }
+      onProgress?.({
+        pct: Math.min(60, (written / sizeBytes) * 60),
+        phase: "scanning",
+        detail: `Fetching from server ${(written / 1e9).toFixed(2)} / ${(sizeBytes / 1e9).toFixed(2)} GB`,
+      });
+    }
+    await writable.close();
+  } catch (e) {
+    try {
+      await writable.abort();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await root.removeEntry(tmpName);
+    } catch {
+      /* ignore */
+    }
+    throw e;
+  }
+
+  const raw = await handle.getFile();
+  const file = new File([raw], fileName, { type: raw.type || "video/x-matroska" });
+  return {
+    file,
+    cleanup: async () => {
+      try {
+        await root.removeEntry(tmpName);
+      } catch {
+        /* ignore */
+      }
+    },
+  };
+}
+
+/**
+ * Produce a browser-playable AAC track for a video that already lives in the
+ * library — everything (fetch + convert) happens against the server copy.
+ */
+export async function extractCompatibleAudioFromServer(
+  opts: {
+    streamUrl: string;
+    fileName: string;
+    sizeBytes: number;
+    onProgress?: (p: TranscodeProgress) => void;
+    bitrateKbps?: number;
+    signal?: AbortSignal;
+  },
+): Promise<TranscodeResult> {
+  const { streamUrl, fileName, sizeBytes, onProgress, bitrateKbps, signal } = opts;
+  if (!serverRescueSupported()) {
+    throw new Error("This browser can't run the server-side rescue. Use Chrome or Edge.");
+  }
+  onProgress?.({ pct: 0, phase: "loading", detail: "Opening server copy" });
+  const { file, cleanup } = await pullToOpfs(streamUrl, fileName, sizeBytes, onProgress, signal);
+  try {
+    return await extractCompatibleAudio(file, {
+      bitrateKbps,
+      signal,
+      onProgress: (p) =>
+        onProgress?.({ ...p, pct: p.phase === "converting" ? 60 + p.pct * 0.4 : Math.max(60, p.pct) }),
+    });
+  } finally {
+    await cleanup();
+  }
+}

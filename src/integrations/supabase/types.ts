@@ -179,6 +179,68 @@ export type Database = {
           },
         ]
       }
+      ingest_jobs: {
+        Row: {
+          bytes_done: number
+          chunk_count: number
+          chunk_size_bytes: number
+          chunks_done: number
+          created_at: string
+          error: string | null
+          file_name: string
+          id: string
+          last_speed_bps: number | null
+          source_url: string
+          status: string
+          storage_path: string
+          total_bytes: number
+          updated_at: string
+          video_id: string | null
+        }
+        Insert: {
+          bytes_done?: number
+          chunk_count?: number
+          chunk_size_bytes?: number
+          chunks_done?: number
+          created_at?: string
+          error?: string | null
+          file_name: string
+          id?: string
+          last_speed_bps?: number | null
+          source_url: string
+          status?: string
+          storage_path: string
+          total_bytes?: number
+          updated_at?: string
+          video_id?: string | null
+        }
+        Update: {
+          bytes_done?: number
+          chunk_count?: number
+          chunk_size_bytes?: number
+          chunks_done?: number
+          created_at?: string
+          error?: string | null
+          file_name?: string
+          id?: string
+          last_speed_bps?: number | null
+          source_url?: string
+          status?: string
+          storage_path?: string
+          total_bytes?: number
+          updated_at?: string
+          video_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingest_jobs_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kill_switch: {
         Row: {
           created_at: string
