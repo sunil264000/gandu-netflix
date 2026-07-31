@@ -40,7 +40,7 @@ const BASE_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, HEAD, OPTIONS",
   "access-control-allow-headers": "range",
-  "access-control-expose-headers": "content-range, content-length, accept-ranges, x-request-id",
+  "access-control-expose-headers": "content-range, content-length, accept-ranges, x-request-id, x-stream-mode",
   "x-content-type-options": "nosniff",
 };
 
