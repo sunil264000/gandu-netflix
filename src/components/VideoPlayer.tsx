@@ -260,7 +260,7 @@ export function VideoPlayer({
       v.removeEventListener("playing", onCanPlay);
       v.removeEventListener("ratechange", onRate);
     };
-  }, [startAt, onProgress, onEnded, kickHide]);
+  }, [startAt, onProgress, onEnded, kickHide, audioSrc]);
 
   useEffect(() => {
     const onFs = () => setFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
