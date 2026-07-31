@@ -173,6 +173,11 @@ function Admin() {
                     </>
                   )}
                 </div>
+                <AudioTrackControl
+                  videoId={v.id}
+                  hasTrack={!!(v as { audio_path?: string | null }).audio_path}
+                  onDone={refresh}
+                />
                 <button onClick={() => nav({ to: "/watch/$slug", params: { slug: v.slug ?? v.id } })}
                   className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-sm">Watch</button>
                 <button onClick={async () => { if (confirm(`Delete "${v.title}"?`)) { await _del({ data: { id: v.id } }); refresh(); } }}
@@ -180,8 +185,67 @@ function Admin() {
               </div>
             ))}
           </div>
+          <p className="mt-4 text-xs text-white/40 leading-relaxed max-w-3xl">
+            <span className="font-semibold text-white/70">Compatible audio:</span> browsers cannot decode
+            DTS / TrueHD / Atmos. Make a small AAC companion track on your PC with{" "}
+            <code className="text-red-300">ffmpeg -i movie.mkv -vn -c:a aac -b:a 256k -ac 2 movie.m4a</code>{" "}
+            and attach it here — the 4K video keeps streaming untouched while the browser plays the AAC track in sync.
+          </p>
         </section>
       </main>
+    </div>
+  );
+}
+
+function AudioTrackControl({ videoId, hasTrack, onDone }: { videoId: string; hasTrack: boolean; onDone: () => void }) {
+  const _attach = useServerFn(attachAudioTrack);
+  const _remove = useServerFn(removeAudioTrack);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [pct, setPct] = useState<number | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const pick = async (file: File) => {
+    setErr(null);
+    setPct(0);
+    try {
+      const ext = (file.name.split(".").pop() || "m4a").toLowerCase();
+      const path = `audio/${videoId}.${ext}`;
+      await uploadAny("videos", path, file, (p) => setPct(p));
+      await _attach({ data: { videoId, path, label: `Compatible audio (${ext.toUpperCase()})` } });
+      setPct(null);
+      onDone();
+    } catch (e) {
+      setPct(null);
+      setErr(e instanceof Error ? e.message : "Upload failed");
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="audio/*,.m4a,.aac,.mp3,.opus,.webm"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) pick(f); e.target.value = ""; }}
+      />
+      <button
+        onClick={() => inputRef.current?.click()}
+        title={hasTrack ? "Replace compatible audio track" : "Attach compatible AAC audio track"}
+        className={`px-2.5 py-1.5 rounded text-xs font-semibold transition ${hasTrack ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25" : "bg-white/10 hover:bg-white/20 text-white/70"}`}
+      >
+        {pct != null ? `${pct.toFixed(0)}%` : hasTrack ? "AAC ✓" : "+ Audio"}
+      </button>
+      {hasTrack && (
+        <button
+          onClick={async () => { await _remove({ data: { videoId } }); onDone(); }}
+          title="Remove companion audio track"
+          className="p-1.5 rounded text-white/40 hover:text-red-400 hover:bg-red-500/10"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
+      {err && <span className="text-[10px] text-red-400 max-w-[8rem] truncate" title={err}>{err}</span>}
     </div>
   );
 }
@@ -194,3 +258,4 @@ function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string
     </div>
   );
 }
+
