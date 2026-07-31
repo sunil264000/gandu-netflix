@@ -37,7 +37,7 @@ function Hero({ v }: { v: VideoCardData }) {
         <span className="flex w-fit items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-300">
           <Sparkles className="h-3 w-3" /> Latest drop
         </span>
-        <h1 className="max-w-3xl text-2xl font-black leading-tight tracking-tight sm:text-4xl lg:text-5xl">
+        <h1 className="line-clamp-3 max-w-3xl break-words text-xl font-black leading-tight tracking-tight sm:text-3xl lg:text-4xl">
           {v.title}
         </h1>
         <div className="flex flex-wrap items-center gap-3">
