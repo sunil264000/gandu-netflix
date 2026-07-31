@@ -11,6 +11,8 @@ import {
   attachAudioTrack, removeAudioTrack,
 } from "@/lib/videos.functions";
 import { uploadAny } from "@/lib/storageUpload";
+import { extractCompatibleAudio, type TranscodeProgress } from "@/lib/audioTranscode";
+
 import { autoPosterSweep } from "@/lib/posters.functions";
 
 import { useLiveVideos } from "@/hooks/useLiveVideos";
