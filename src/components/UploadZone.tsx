@@ -575,6 +575,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
               j.status === "thumb" ? "Generating thumbnail" :
               j.status === "uploading" ? "Uploading" :
               j.status === "saving" ? "Finalizing" :
+              j.status === "audio" ? (j.message || "Preparing browser audio") :
               j.status === "done" ? "Done" : "Error";
             return (
               <div key={j.id} className="p-3 rounded-xl bg-white/5 border border-white/10">
