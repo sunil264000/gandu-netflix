@@ -292,7 +292,7 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     // the next few whole parts into the edge cache, so the player's *next*
     // range request is served from cache with near-zero latency.
     const prewarmAhead = () => {
-      if (preview) return;
+      if (preview || download) return;
       const from = lastPart + 1;
       for (let p = from; p < Math.min(from + PREWARM_URL_PARTS, chunkCount); p += 1) {
         void getSignedUrl(`${video.storage_path}.part-${String(p).padStart(6, "0")}`).catch(() => {});
