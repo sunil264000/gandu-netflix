@@ -94,10 +94,48 @@ export const getVideo = createServerFn({ method: "GET" })
       ? `/api/public/videos/stream?id=${encodeURIComponent(v.id)}`
       : await signPath(sb, "videos", v.storage_path);
     const thumbnailUrl = await signPath(sb, "thumbnails", v.thumbnail_path);
+    const audioUrl = await signPath(sb, "videos", (v as { audio_path?: string | null }).audio_path ?? null);
     const { data: progress } = await sb.from("watch_history")
       .select("position_sec, completed").eq("user_id", ANON_USER).eq("video_id", v.id).maybeSingle();
-    return { ...v, stream_url: streamUrl, thumbnail_url: thumbnailUrl, resume_at: progress?.position_sec ?? 0, completed: progress?.completed ?? false };
+    return {
+      ...v,
+      stream_url: streamUrl,
+      thumbnail_url: thumbnailUrl,
+      audio_url: audioUrl,
+      playlist_url: `/api/public/videos/playlist?id=${encodeURIComponent(v.id)}`,
+      resume_at: progress?.position_sec ?? 0,
+      completed: progress?.completed ?? false,
+    };
   });
+
+export const attachAudioTrack = createServerFn({ method: "POST" })
+  .inputValidator((i: { videoId: string; path: string; label?: string }) =>
+    z.object({
+      videoId: z.string().uuid(),
+      path: z.string().min(1).max(500),
+      label: z.string().max(120).optional(),
+    }).parse(i))
+  .handler(async ({ data }) => {
+    const sb = await admin();
+    const { error } = await sb.from("videos")
+      .update({ audio_path: data.path, audio_label: data.label ?? "Compatible audio (AAC)" })
+      .eq("id", data.videoId);
+    if (error) throw error;
+    return { ok: true };
+  });
+
+export const removeAudioTrack = createServerFn({ method: "POST" })
+  .inputValidator((i: { videoId: string }) => z.object({ videoId: z.string().uuid() }).parse(i))
+  .handler(async ({ data }) => {
+    const sb = await admin();
+    const { data: row } = await sb.from("videos").select("audio_path").eq("id", data.videoId).maybeSingle();
+    const p = (row as { audio_path?: string | null } | null)?.audio_path;
+    if (p) { try { await sb.storage.from("videos").remove([p]); } catch { /* ignore */ } }
+    const { error } = await sb.from("videos").update({ audio_path: null, audio_label: null }).eq("id", data.videoId);
+    if (error) throw error;
+    return { ok: true };
+  });
+
 
 export const listCategories = createServerFn({ method: "GET" }).handler(async () => {
   const sb = await admin();

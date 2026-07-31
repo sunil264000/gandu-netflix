@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize, PictureInPicture2,
   SkipBack, SkipForward, Loader2, Settings, Gauge, Rewind, FastForward,
+  AudioLines, ExternalLink,
 } from "lucide-react";
 
 type CaptionTrack = { src: string; label: string; srclang: string; default?: boolean };
@@ -14,6 +15,12 @@ type Props = {
   onEnded?: () => void;
   autoPlay?: boolean;
   captions?: CaptionTrack[];
+  /** Optional browser-friendly companion soundtrack (AAC) for files whose
+   *  original track is DTS/TrueHD/E-AC-3 and cannot be decoded by browsers. */
+  audioSrc?: string | null;
+  audioLabel?: string | null;
+  /** .m3u handoff for desktop players (original audio, no re-encode). */
+  playlistUrl?: string | null;
 };
 
 function fmt(t: number) {
@@ -23,8 +30,13 @@ function fmt(t: number) {
 }
 
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const DRIFT_TOLERANCE = 0.25; // seconds of allowed A/V drift before resync
 
-export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions }: Props) {
+export function VideoPlayer({
+  src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions,
+  audioSrc, audioLabel, playlistUrl,
+}: Props) {
+
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
@@ -66,9 +78,14 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const [stats, setStats] = useState(false);
   const [noAudio, setNoAudio] = useState(false);
   const [noAudioDismissed, setNoAudioDismissed] = useState(false);
+  const altRef = useRef<HTMLAudioElement>(null);
+  const [useAlt, setUseAlt] = useState(!!audioSrc);
+  const [altReady, setAltReady] = useState(false);
+  const [drift, setDrift] = useState(0);
 
   const [res, setRes] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [stalled, setStalled] = useState(false);
+
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snapCache = useRef<Map<number, string>>(new Map());
@@ -186,10 +203,11 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
       if (v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1));
       // Detect an undecodable audio track (Dolby DD+/EAC3, DTS, TrueHD in MKV):
       // video decodes fine but zero audio bytes are ever decoded.
-      if (!v.paused && v.currentTime > 4) {
+      if (!audioSrc && !v.paused && v.currentTime > 4) {
         const decoded = (v as unknown as { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount;
         if (typeof decoded === "number") setNoAudio(decoded === 0);
       }
+
 
       if (onProgress && v.currentTime - lastReport.current > 5) { lastReport.current = v.currentTime; onProgress(v.currentTime, v.duration); }
       // Capture a snapshot at most every ~1s while playing, bucket by SNAP_BUCKET
@@ -242,7 +260,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
       v.removeEventListener("playing", onCanPlay);
       v.removeEventListener("ratechange", onRate);
     };
-  }, [startAt, onProgress, onEnded, kickHide]);
+  }, [startAt, onProgress, onEnded, kickHide, audioSrc]);
 
   useEffect(() => {
     const onFs = () => setFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
@@ -282,6 +300,68 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     return () => clearInterval(iv);
   }, [src]);
 
+  // ---- Companion audio track (Netflix-style separate audio rendition) ----
+  // When the original soundtrack is undecodable (DTS/TrueHD/E-AC-3), we mute
+  // the video element and drive a parallel <audio> element that carries an
+  // AAC rendition, keeping it locked to the video clock.
+  useEffect(() => { setUseAlt(!!audioSrc); setAltReady(false); }, [audioSrc]);
+
+  useEffect(() => {
+    const v = vidRef.current;
+    const a = altRef.current;
+    if (!v) return;
+    if (!a || !useAlt) { v.muted = muted; return; }
+
+    v.muted = true;
+    a.muted = muted;
+    a.volume = volume;
+    a.playbackRate = v.playbackRate;
+
+    const sync = (force = false) => {
+      if (!a.duration && !force) return;
+      const d = a.currentTime - v.currentTime;
+      setDrift(d);
+      if (force || Math.abs(d) > DRIFT_TOLERANCE) {
+        try { a.currentTime = v.currentTime; } catch { /* not seekable yet */ }
+      }
+    };
+
+    const onPlay = () => { sync(true); a.play().catch(() => {}); };
+    const onPause = () => a.pause();
+    const onSeeked = () => { sync(true); if (!v.paused) a.play().catch(() => {}); };
+    const onSeeking = () => a.pause();
+    const onRate = () => { a.playbackRate = v.playbackRate; };
+    const onWait = () => a.pause();
+    const onPlaying = () => { sync(true); a.play().catch(() => {}); };
+    const onAltReady = () => setAltReady(true);
+
+    v.addEventListener("play", onPlay);
+    v.addEventListener("pause", onPause);
+    v.addEventListener("seeking", onSeeking);
+    v.addEventListener("seeked", onSeeked);
+    v.addEventListener("ratechange", onRate);
+    v.addEventListener("waiting", onWait);
+    v.addEventListener("playing", onPlaying);
+    a.addEventListener("loadedmetadata", onAltReady);
+    a.addEventListener("canplay", onAltReady);
+
+    const iv = setInterval(() => { if (!v.paused && !v.seeking) sync(); }, 1000);
+    if (!v.paused) onPlay();
+
+    return () => {
+      clearInterval(iv);
+      v.removeEventListener("play", onPlay);
+      v.removeEventListener("pause", onPause);
+      v.removeEventListener("seeking", onSeeking);
+      v.removeEventListener("seeked", onSeeked);
+      v.removeEventListener("ratechange", onRate);
+      v.removeEventListener("waiting", onWait);
+      v.removeEventListener("playing", onPlaying);
+      a.removeEventListener("loadedmetadata", onAltReady);
+      a.removeEventListener("canplay", onAltReady);
+      a.pause();
+    };
+  }, [useAlt, audioSrc, muted, volume]);
 
   const togglePlay = useCallback(() => { const v = vidRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }, []);
   const seek = useCallback((dt: number) => {
@@ -292,18 +372,31 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     kickHide();
   }, [kickHide]);
   const setPos = (t: number) => { const v = vidRef.current; if (!v) return; v.currentTime = t; };
-  const toggleMute = () => { const v = vidRef.current; if (!v) return; v.muted = !v.muted; setMuted(v.muted); flashToast(v.muted ? "Muted" : "Unmuted"); };
+  const toggleMute = () => {
+    const v = vidRef.current; if (!v) return;
+    const next = !muted;
+    setMuted(next);
+    if (useAlt && altRef.current) { altRef.current.muted = next; v.muted = true; }
+    else v.muted = next;
+    flashToast(next ? "Muted" : "Unmuted");
+  };
   const setVol = (val: number) => {
     const v = vidRef.current; if (!v) return;
-    v.volume = val; setVolume(val); v.muted = val === 0; setMuted(v.muted);
+    setVolume(val);
+    const m = val === 0;
+    setMuted(m);
+    if (useAlt && altRef.current) { altRef.current.volume = val; altRef.current.muted = m; v.muted = true; }
+    else { v.volume = val; v.muted = m; }
     try { localStorage.setItem("vault:vol", String(val)); } catch {}
   };
   const setSpeed = (r: number) => {
     const v = vidRef.current; if (!v) return;
     v.playbackRate = r; setRate(r); setMenu(null);
+    if (altRef.current) altRef.current.playbackRate = r;
     try { localStorage.setItem("vault:rate", String(r)); } catch {}
     flashToast(`${r}× speed`);
   };
+
   const toggleFs = () => {
     const el = wrapRef.current as any;
     const doc = document as any;
@@ -421,6 +514,18 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
         style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none", left: -9999, top: -9999 }}
       />
 
+      {/* Companion AAC soundtrack, clock-locked to the video element */}
+      {audioSrc && (
+        <audio
+          ref={altRef}
+          src={audioSrc}
+          preload="auto"
+          crossOrigin="anonymous"
+          aria-hidden
+          tabIndex={-1}
+          style={{ display: "none" }}
+        />
+      )}
 
       {loading && (
         <div className="absolute inset-0 grid place-items-center pointer-events-none">
@@ -438,27 +543,41 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
 
       {noAudio && !noAudioDismissed && (
         <div
-          className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-[90%] bg-black/85 backdrop-blur border border-primary/40 rounded-xl px-4 py-3 text-xs text-white/85 shadow-xl"
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-20 w-[min(92%,30rem)] bg-black/90 backdrop-blur border border-red-500/40 rounded-xl px-4 py-3 text-xs text-white/85 shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <p className="font-semibold text-white mb-1">No sound? This file's audio track can't be decoded here</p>
-          <p className="text-white/60 leading-relaxed">
-            It uses Dolby Digital+/DTS/TrueHD, which browsers can't play. The video is fine — open the
-            original in a desktop player (VLC/MPV) for full audio.
+          <p className="font-semibold text-white mb-1 flex items-center gap-1.5">
+            <AudioLines className="w-3.5 h-3.5 text-red-400" />
+            No sound — this soundtrack can't be decoded in a browser
           </p>
-          <div className="flex gap-2 mt-2">
-            <a
-              href={src}
-              target="_blank"
-              rel="noreferrer"
-              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium"
+          <p className="text-white/60 leading-relaxed">
+            It's Dolby Digital+/DTS/TrueHD. Netflix and Hotstar avoid this by shipping a separate AAC
+            rendition; this file only has the original. Play it in a desktop player for full lossless audio,
+            or attach a compatible audio track from Admin.
+          </p>
+          <div className="flex flex-wrap gap-2 mt-2.5">
+            {playlistUrl && (
+              <a
+                href={playlistUrl}
+                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold inline-flex items-center gap-1.5 transition"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Open in VLC / MPV
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const abs = new URL(src, window.location.origin).toString();
+                navigator.clipboard?.writeText(abs).then(() => flashToast("Stream link copied")).catch(() => {});
+              }}
+              className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/85 font-medium transition"
             >
-              Open original
-            </a>
+              Copy stream link
+            </button>
             <button
               type="button"
               onClick={() => setNoAudioDismissed(true)}
-              className="px-3 py-1.5 rounded-lg bg-white/10 text-white/80"
+              className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-white/60 transition"
             >
               Dismiss
             </button>
@@ -467,14 +586,20 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
       )}
 
 
+
       {stats && (
         <div className="absolute top-4 right-4 bg-black/80 backdrop-blur rounded-lg px-3 py-2 text-[10px] font-mono text-white/80 leading-relaxed pointer-events-none">
           <div>res <span className="text-white">{res.w ? `${res.w}×${res.h}` : "—"}</span></div>
           <div>time <span className="text-white">{fmt(current)}</span> / {fmt(duration)}</div>
           <div>buffer ahead <span className="text-white">{Math.max(0, buffered - current).toFixed(1)}s</span></div>
           <div>rate <span className="text-white">{rate}×</span> · fit {fit}</div>
+          <div>
+            audio <span className="text-white">{audioSrc ? (useAlt ? "companion AAC" : "original") : "original"}</span>
+            {audioSrc && useAlt ? <> · drift <span className="text-white">{(drift * 1000).toFixed(0)}ms</span>{altReady ? "" : " (loading)"}</> : null}
+          </div>
         </div>
       )}
+
 
       {seekFlash && (
         <div className={`absolute inset-y-0 ${seekFlash === "back" ? "left-0" : "right-0"} w-1/3 grid place-items-center pointer-events-none animate-in fade-in zoom-in-95 duration-200`}>
@@ -608,6 +733,38 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
                     <span>Mode</span>
                     <span className="text-right font-mono text-red-400">Original (no re-encode)</span>
                   </div>
+
+                  <div className="text-white font-semibold mb-2 text-xs">Audio track</div>
+                  {audioSrc ? (
+                    <div className="mb-3 space-y-1">
+                      <button
+                        onClick={() => { setUseAlt(false); flashToast("Original soundtrack"); }}
+                        className={`w-full px-2 py-1.5 rounded-md text-left text-[11px] font-medium transition ${!useAlt ? "bg-red-600/80 text-white" : "bg-white/10 hover:bg-white/20 text-white/85"}`}
+                      >
+                        Original (lossless, may be silent)
+                      </button>
+                      <button
+                        onClick={() => { setUseAlt(true); flashToast("Companion AAC track"); }}
+                        className={`w-full px-2 py-1.5 rounded-md text-left text-[11px] font-medium transition ${useAlt ? "bg-red-600/80 text-white" : "bg-white/10 hover:bg-white/20 text-white/85"}`}
+                      >
+                        {audioLabel || "Compatible audio (AAC)"}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mb-3 text-[10px] text-white/45 leading-relaxed">
+                      Only the original soundtrack is available. Attach a compatible AAC track in Admin if this
+                      file plays silently.
+                    </p>
+                  )}
+                  {playlistUrl && (
+                    <a
+                      href={playlistUrl}
+                      className="w-full mb-3 px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition flex items-center gap-1.5"
+                    >
+                      <ExternalLink className="w-3 h-3" /> Play in VLC / MPV (original audio)
+                    </a>
+                  )}
+
                   <button
                     onClick={toggleFit}
                     className="w-full mb-1.5 px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-left text-white text-[11px] font-medium transition"
@@ -621,6 +778,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
                     Stats for nerds: <span className="font-mono">{stats ? "On" : "Off"}</span>
                   </button>
                   <div className="text-white font-semibold mb-2 text-xs">Keyboard shortcuts</div>
+
 
                   <div className="grid grid-cols-2 gap-y-1">
                     <span>Play / Pause</span><span className="text-right font-mono">Space · K</span>

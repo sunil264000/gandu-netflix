@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useState } from "react";
-import { Heart, ArrowLeft, Play, Share2, Clock, Info } from "lucide-react";
+import { Heart, ArrowLeft, Play, Share2, Clock, Info, Headphones, ExternalLink, Copy } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite } from "@/lib/videos.functions";
@@ -88,6 +88,8 @@ function Watch() {
   const [fav, setFav] = useState(false);
   const [autoplay, setAutoplay] = useState(true);
   const [showTip, setShowTip] = useState(true);
+  const [copied, setCopied] = useState(false);
+
 
   const video = useQuery({ queryKey: ["video", slug], queryFn: () => _get({ data: { id: slug } }) });
   const related = useQuery({
@@ -146,8 +148,39 @@ function Watch() {
                       onProgress={onProgress}
                       onEnded={onEnded}
                       autoPlay
+                      audioSrc={vid.audio_url}
+                      audioLabel={(vid as { audio_label?: string | null }).audio_label ?? null}
+                      playlistUrl={vid.playlist_url}
                     />
                   )}
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div className="flex items-start gap-2 text-[11px] text-zinc-400 bg-zinc-900/60 border border-white/5 rounded-lg px-3 py-2">
+                    <Headphones className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-400" />
+                    <p className="flex-1 leading-relaxed">
+                      <span className="font-semibold text-white">Lossless audio:</span> browsers can't decode
+                      DTS/TrueHD/Atmos. Open the original in a desktop player — nothing is re-encoded.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <a
+                      href={vid.playlist_url}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold uppercase tracking-wider transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" /> Play in VLC
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const abs = new URL(vid.stream_url ?? "", window.location.origin).toString();
+                        navigator.clipboard?.writeText(abs).then(() => setCopied(true)).catch(() => {});
+                        setTimeout(() => setCopied(false), 1600);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800/70 hover:bg-zinc-700 border border-zinc-700/60 text-zinc-200 text-[11px] font-bold uppercase tracking-wider transition"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> {copied ? "Copied" : "Copy stream URL"}
+                    </button>
+                  </div>
                 </div>
                 {showTip && (
                   <div className="mt-2 flex items-start gap-2 text-[11px] text-zinc-400 bg-zinc-900/60 border border-white/5 rounded-lg px-3 py-2">
@@ -159,6 +192,7 @@ function Watch() {
                     <button onClick={() => setShowTip(false)} className="text-zinc-500 hover:text-white text-xs">✕</button>
                   </div>
                 )}
+
               </div>
 
               <div className="space-y-4 sm:space-y-6">

@@ -542,6 +542,8 @@ export type Database = {
       }
       videos: {
         Row: {
+          audio_label: string | null
+          audio_path: string | null
           category_id: string | null
           chunk_count: number | null
           chunk_size_bytes: number | null
@@ -564,6 +566,8 @@ export type Database = {
           width: number | null
         }
         Insert: {
+          audio_label?: string | null
+          audio_path?: string | null
           category_id?: string | null
           chunk_count?: number | null
           chunk_size_bytes?: number | null
@@ -586,6 +590,8 @@ export type Database = {
           width?: number | null
         }
         Update: {
+          audio_label?: string | null
+          audio_path?: string | null
           category_id?: string | null
           chunk_count?: number | null
           chunk_size_bytes?: number | null
