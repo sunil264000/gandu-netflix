@@ -1,15 +1,18 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Trash2, Plus, Film, HardDrive, Eye, Sparkles, Loader2 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { UploadZone } from "@/components/UploadZone";
 import {
   listVideos, listCategories, deleteVideo, updateVideo,
   createCategory, deleteCategory, storageStats, backfillThumbnails,
+  attachAudioTrack, removeAudioTrack,
 } from "@/lib/videos.functions";
+import { uploadAny } from "@/lib/storageUpload";
 import { autoPosterSweep } from "@/lib/posters.functions";
+
 import { useLiveVideos } from "@/hooks/useLiveVideos";
 
 export const Route = createFileRoute("/admin")({
