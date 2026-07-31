@@ -173,7 +173,7 @@ function Admin() {
                     </>
                   )}
                 </div>
-                <button onClick={() => nav({ to: "/watch/$id", params: { id: v.id } })}
+                <button onClick={() => nav({ to: "/watch/$slug", params: { slug: v.slug ?? v.id } })}
                   className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-sm">Watch</button>
                 <button onClick={async () => { if (confirm(`Delete "${v.title}"?`)) { await _del({ data: { id: v.id } }); refresh(); } }}
                   className="p-2 rounded text-white/60 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>
