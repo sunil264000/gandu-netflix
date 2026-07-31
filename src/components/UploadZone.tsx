@@ -219,7 +219,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       lastRemoteT = now;
       lastRemoteBytes = bytes;
       updateUploadJob(job.id, {
-        status: patch.status,
+        status: patch.status === "audio" ? "saving" : patch.status,
         message: patch.message,
         progress: patch.progress,
         uploadedBytes: Math.round(bytes),
