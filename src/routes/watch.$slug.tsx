@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useState } from "react";
-import { Heart, ArrowLeft, Play, Share2, Clock, Info } from "lucide-react";
+import { Heart, ArrowLeft, Play, Share2, Clock, Info, Headphones, ExternalLink, Copy } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite } from "@/lib/videos.functions";
@@ -88,6 +88,8 @@ function Watch() {
   const [fav, setFav] = useState(false);
   const [autoplay, setAutoplay] = useState(true);
   const [showTip, setShowTip] = useState(true);
+  const [copied, setCopied] = useState(false);
+
 
   const video = useQuery({ queryKey: ["video", slug], queryFn: () => _get({ data: { id: slug } }) });
   const related = useQuery({
