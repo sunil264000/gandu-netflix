@@ -14,6 +14,11 @@ const PARALLEL_FETCHES = 16; // upstream part reads in flight
 const PREWARM_URL_PARTS = 16; // signed URLs warmed beyond the served window
 const PREVIEW_RESPONSE_BYTES = 1 * 1024 * 1024; // tiny window for scrub previews
 const PREWARM_CACHE_PARTS = 3; // whole parts pushed into edge cache ahead of playback
+// Download mode: the client opens many connections itself, so each response
+// should honour the exact requested range (no ramping, no read-ahead) and just
+// move bytes as fast as the upstream allows.
+const DOWNLOAD_MAX_RESPONSE_BYTES = 128 * 1024 * 1024;
+
 
 
 const SIGNED_URL_TTL = 60 * 60 * 12;
