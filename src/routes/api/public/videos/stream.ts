@@ -8,7 +8,7 @@ import { log, newRequestId, errShape } from "@/lib/server-log";
 // Adaptive response window: small first response so playback starts almost
 // instantly, then large windows for sustained sequential playback so 4K/HEVC
 // files stream continuously instead of reopening a request every few MB.
-const START_RESPONSE_BYTES = 2 * 1024 * 1024; // fast-start window near a seek point
+const START_RESPONSE_BYTES = 8 * 1024 * 1024; // fast-start window near a seek point
 const MAX_RESPONSE_BYTES = 24 * 1024 * 1024; // steady-state window
 const FAST_START_ZONE = 6 * 1024 * 1024; // bytes after a seek that use the small window
 const PARALLEL_FETCHES = 8;
