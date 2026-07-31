@@ -1,22 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { log, newRequestId, errShape } from "@/lib/server-log";
 
-// Large response window + parallel chunk prefetch so 4K/HEVC files stream
-// continuously instead of restarting a new request every few MB. Browsers
-// naturally throttle their own read speed via TCP backpressure, so a big
-// window doesn't waste bandwidth — it just avoids per-request overhead.
-// Adaptive response window: small first response so playback starts almost
-// instantly, then large windows for sustained sequential playback so 4K/HEVC
-// files stream continuously instead of reopening a request every few MB.
-const START_RESPONSE_BYTES = 6 * 1024 * 1024; // fast-start window near a seek point
-const MAX_RESPONSE_BYTES = 32 * 1024 * 1024; // steady-state window
-const FAST_START_ZONE = 8 * 1024 * 1024; // bytes after a seek that use the small window
-const PARALLEL_FETCHES = 12;
+// Streaming policy: nothing is buffered in the worker (pure pass-through), so
+// the only real ceilings are the platform subrequest budget per response and
+// how fast the player can start decoding. So: a small first window on a seek
+// (fast time-to-first-frame), then the window RAMPS UP on every sequential
+// follow-up until it's effectively "the rest of the file in one connection".
+const START_RESPONSE_BYTES = 16 * 1024 * 1024; // first window after a seek
+const MAX_RESPONSE_BYTES = 512 * 1024 * 1024; // steady-state ceiling (~16 parts)
+const WINDOW_RAMP = 4; // window multiplier per sequential request
+const FAST_START_ZONE = 16 * 1024 * 1024; // tolerance for "still sequential"
+const PARALLEL_FETCHES = 16; // upstream part reads in flight
 
-const SIGNED_URL_TTL = 60 * 60 * 6;
-const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
-const CHUNK_FETCH_RETRIES = 3;
-const CHUNK_FETCH_TIMEOUT_MS = 25_000;
+const SIGNED_URL_TTL = 60 * 60 * 12;
+const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 11;
+const CHUNK_FETCH_RETRIES = 4;
+const CHUNK_FETCH_TIMEOUT_MS = 30_000;
+
 
 // Browsers demux by Content-Type. Uploads recorded some files as the invalid
 // "video/matroska" (and some as octet-stream), which makes Chrome fall back to
@@ -56,8 +56,9 @@ type StreamVideo = {
 const videoCache = new Map<string, { v: StreamVideo; exp: number }>();
 const urlCache = new Map<string, { url: string; exp: number }>();
 const VIDEO_CACHE_MS = 60_000;
-const seqCache = new Map<string, { nextByte: number; exp: number }>();
-const SEQ_CACHE_MS = 30_000;
+const seqCache = new Map<string, { nextByte: number; window: number; exp: number }>();
+const SEQ_CACHE_MS = 120_000;
+
 
 const BASE_HEADERS = {
   "accept-ranges": "bytes",
@@ -157,15 +158,19 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       });
     }
 
-    // Sequential playback gets the big window; a fresh seek gets a small one
-    // so the first bytes land immediately and the player can start decoding.
+    // A fresh seek gets a small window so the first frame decodes instantly.
+    // Each sequential follow-up multiplies the window (16MB → 64 → 256 → 512),
+    // so steady playback ends up pulling hundreds of MB per connection.
     const seq = seqCache.get(id);
     const sequential = !!seq && seq.exp > Date.now() && Math.abs(range.start - seq.nextByte) <= FAST_START_ZONE;
-    const window = sequential ? MAX_RESPONSE_BYTES : START_RESPONSE_BYTES;
+    const window = sequential
+      ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? START_RESPONSE_BYTES) * WINDOW_RAMP)
+      : START_RESPONSE_BYTES;
     if (range.end - range.start + 1 > window) {
       range.end = Math.min(range.start + window - 1, total - 1);
     }
-    seqCache.set(id, { nextByte: range.end + 1, exp: Date.now() + SEQ_CACHE_MS });
+    seqCache.set(id, { nextByte: range.end + 1, window, exp: Date.now() + SEQ_CACHE_MS });
+
 
     const contentLength = range.end - range.start + 1;
     const headers = new Headers({
