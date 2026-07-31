@@ -131,9 +131,15 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       });
     }
 
-    if (range.end - range.start + 1 > MAX_RESPONSE_BYTES) {
-      range.end = Math.min(range.start + MAX_RESPONSE_BYTES - 1, total - 1);
+    // Sequential playback gets the big window; a fresh seek gets a small one
+    // so the first bytes land immediately and the player can start decoding.
+    const seq = seqCache.get(id);
+    const sequential = !!seq && seq.exp > Date.now() && Math.abs(range.start - seq.nextByte) <= FAST_START_ZONE;
+    const window = sequential ? MAX_RESPONSE_BYTES : START_RESPONSE_BYTES;
+    if (range.end - range.start + 1 > window) {
+      range.end = Math.min(range.start + window - 1, total - 1);
     }
+    seqCache.set(id, { nextByte: range.end + 1, exp: Date.now() + SEQ_CACHE_MS });
 
     const contentLength = range.end - range.start + 1;
     const headers = new Headers({
@@ -143,8 +149,10 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       "cache-control": "public, max-age=31536000, immutable",
       "content-range": `bytes ${range.start}-${range.end}/${total}`,
       "x-request-id": reqId,
+      "x-stream-mode": sequential ? "sequential" : "seek",
       "server-timing": `prep;dur=${Date.now() - started}`,
     });
+
     if (headOnly) return new Response(null, { status: 206, headers });
 
     const firstPart = Math.floor(range.start / chunkSize);
