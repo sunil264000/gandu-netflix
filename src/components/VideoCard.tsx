@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Play, Clock, Eye } from "lucide-react";
 import { motion } from "framer-motion";
+import { SmartThumb } from "@/components/SmartThumb";
 
 export type VideoCardData = {
   id: string;
