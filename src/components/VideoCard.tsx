@@ -44,25 +44,22 @@ export function VideoCard({ v, index = 0 }: { v: VideoCardData; index?: number }
     >
       <Link to="/watch/$slug" params={{ slug: v.slug ?? v.id }} className="block outline-none">
         <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.03] shadow-[0_10px_30px_-18px_rgba(0,0,0,.9)] transition-all duration-500 group-hover:border-red-500/40 group-hover:shadow-[0_24px_60px_-24px_rgba(239,68,68,.55)]">
-          {v.thumbnail_url ? (
-            <img
-              src={v.thumbnail_url}
-              alt={v.title}
-              className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.07]"
-              loading="lazy"
-            />
-          ) : (
-            <div
-              className="grid h-full w-full place-items-center"
-              style={{
-                background: `linear-gradient(135deg, hsl(${hue} 55% 16%), hsl(${(hue + 40) % 360} 60% 9%))`,
-              }}
-            >
-              <span className="px-3 text-center text-xs font-semibold uppercase tracking-[0.2em] text-white/35">
-                {v.title.slice(0, 22)}
-              </span>
-            </div>
-          )}
+          <SmartThumb
+            src={v.thumbnail_url}
+            alt={v.title}
+            fallback={
+              <div
+                className="grid h-full w-full place-items-center"
+                style={{
+                  background: `linear-gradient(135deg, hsl(${hue} 55% 16%), hsl(${(hue + 40) % 360} 60% 9%))`,
+                }}
+              >
+                <span className="px-3 text-center text-xs font-semibold uppercase tracking-[0.2em] text-white/35">
+                  {v.title.slice(0, 22)}
+                </span>
+              </div>
+            }
+          />
 
           <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent opacity-70 transition-opacity duration-300 group-hover:opacity-95" />
 
