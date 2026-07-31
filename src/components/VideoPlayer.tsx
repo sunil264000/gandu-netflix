@@ -220,7 +220,23 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     try { localStorage.setItem("vault:rate", String(r)); } catch {}
     flashToast(`${r}× speed`);
   };
-  const toggleFs = () => { if (!document.fullscreenElement) wrapRef.current?.requestFullscreen(); else document.exitFullscreen(); };
+  const toggleFs = () => {
+    const el = wrapRef.current as any;
+    const doc = document as any;
+    if (!(document.fullscreenElement || doc.webkitFullscreenElement)) {
+      (el?.requestFullscreen?.() ?? el?.webkitRequestFullscreen?.())?.catch?.(() => {});
+    } else {
+      (document.exitFullscreen?.() ?? doc.webkitExitFullscreen?.())?.catch?.(() => {});
+    }
+  };
+  const toggleFit = () => {
+    setFit((f) => {
+      const next = f === "contain" ? "cover" : "contain";
+      try { localStorage.setItem("vault:fit", next); } catch { /* ignore */ }
+      flashToast(next === "cover" ? "Fill screen" : "Fit to screen");
+      return next;
+    });
+  };
   const pip = async () => {
     const v = vidRef.current; if (!v) return;
     try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await v.requestPictureInPicture(); } catch {}
