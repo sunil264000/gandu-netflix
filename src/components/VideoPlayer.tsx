@@ -299,6 +299,68 @@ export function VideoPlayer({
     return () => clearInterval(iv);
   }, [src]);
 
+  // ---- Companion audio track (Netflix-style separate audio rendition) ----
+  // When the original soundtrack is undecodable (DTS/TrueHD/E-AC-3), we mute
+  // the video element and drive a parallel <audio> element that carries an
+  // AAC rendition, keeping it locked to the video clock.
+  useEffect(() => { setUseAlt(!!audioSrc); setAltReady(false); }, [audioSrc]);
+
+  useEffect(() => {
+    const v = vidRef.current;
+    const a = altRef.current;
+    if (!v) return;
+    if (!a || !useAlt) { v.muted = muted; return; }
+
+    v.muted = true;
+    a.muted = muted;
+    a.volume = volume;
+    a.playbackRate = v.playbackRate;
+
+    const sync = (force = false) => {
+      if (!a.duration && !force) return;
+      const d = a.currentTime - v.currentTime;
+      setDrift(d);
+      if (force || Math.abs(d) > DRIFT_TOLERANCE) {
+        try { a.currentTime = v.currentTime; } catch { /* not seekable yet */ }
+      }
+    };
+
+    const onPlay = () => { sync(true); a.play().catch(() => {}); };
+    const onPause = () => a.pause();
+    const onSeeked = () => { sync(true); if (!v.paused) a.play().catch(() => {}); };
+    const onSeeking = () => a.pause();
+    const onRate = () => { a.playbackRate = v.playbackRate; };
+    const onWait = () => a.pause();
+    const onPlaying = () => { sync(true); a.play().catch(() => {}); };
+    const onAltReady = () => setAltReady(true);
+
+    v.addEventListener("play", onPlay);
+    v.addEventListener("pause", onPause);
+    v.addEventListener("seeking", onSeeking);
+    v.addEventListener("seeked", onSeeked);
+    v.addEventListener("ratechange", onRate);
+    v.addEventListener("waiting", onWait);
+    v.addEventListener("playing", onPlaying);
+    a.addEventListener("loadedmetadata", onAltReady);
+    a.addEventListener("canplay", onAltReady);
+
+    const iv = setInterval(() => { if (!v.paused && !v.seeking) sync(); }, 1000);
+    if (!v.paused) onPlay();
+
+    return () => {
+      clearInterval(iv);
+      v.removeEventListener("play", onPlay);
+      v.removeEventListener("pause", onPause);
+      v.removeEventListener("seeking", onSeeking);
+      v.removeEventListener("seeked", onSeeked);
+      v.removeEventListener("ratechange", onRate);
+      v.removeEventListener("waiting", onWait);
+      v.removeEventListener("playing", onPlaying);
+      a.removeEventListener("loadedmetadata", onAltReady);
+      a.removeEventListener("canplay", onAltReady);
+      a.pause();
+    };
+  }, [useAlt, audioSrc, muted, volume]);
 
   const togglePlay = useCallback(() => { const v = vidRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }, []);
   const seek = useCallback((dt: number) => {
@@ -309,18 +371,31 @@ export function VideoPlayer({
     kickHide();
   }, [kickHide]);
   const setPos = (t: number) => { const v = vidRef.current; if (!v) return; v.currentTime = t; };
-  const toggleMute = () => { const v = vidRef.current; if (!v) return; v.muted = !v.muted; setMuted(v.muted); flashToast(v.muted ? "Muted" : "Unmuted"); };
+  const toggleMute = () => {
+    const v = vidRef.current; if (!v) return;
+    const next = !muted;
+    setMuted(next);
+    if (useAlt && altRef.current) { altRef.current.muted = next; v.muted = true; }
+    else v.muted = next;
+    flashToast(next ? "Muted" : "Unmuted");
+  };
   const setVol = (val: number) => {
     const v = vidRef.current; if (!v) return;
-    v.volume = val; setVolume(val); v.muted = val === 0; setMuted(v.muted);
+    setVolume(val);
+    const m = val === 0;
+    setMuted(m);
+    if (useAlt && altRef.current) { altRef.current.volume = val; altRef.current.muted = m; v.muted = true; }
+    else { v.volume = val; v.muted = m; }
     try { localStorage.setItem("vault:vol", String(val)); } catch {}
   };
   const setSpeed = (r: number) => {
     const v = vidRef.current; if (!v) return;
     v.playbackRate = r; setRate(r); setMenu(null);
+    if (altRef.current) altRef.current.playbackRate = r;
     try { localStorage.setItem("vault:rate", String(r)); } catch {}
     flashToast(`${r}× speed`);
   };
+
   const toggleFs = () => {
     const el = wrapRef.current as any;
     const doc = document as any;
