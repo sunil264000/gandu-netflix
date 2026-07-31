@@ -9,6 +9,7 @@ import {
   listVideos, listCategories, deleteVideo, updateVideo,
   createCategory, deleteCategory, storageStats, backfillThumbnails,
 } from "@/lib/videos.functions";
+import { autoPosterSweep } from "@/lib/posters.functions";
 import { useLiveVideos } from "@/hooks/useLiveVideos";
 
 export const Route = createFileRoute("/admin")({
@@ -39,6 +40,7 @@ function Admin() {
   const _delCat = useServerFn(deleteCategory);
   const _stats = useServerFn(storageStats);
   const _backfill = useServerFn(backfillThumbnails);
+  const _autoPoster = useServerFn(autoPosterSweep);
 
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [newCat, setNewCat] = useState("");
@@ -61,8 +63,15 @@ function Admin() {
   const runBackfill = async () => {
     setBackfilling(true); setBackfillMsg(null);
     try {
+      // 1) Look up real artwork by filename, 2) generate a poster for the rest.
+      const auto = await _autoPoster({ data: { force: false } });
       const r = await _backfill();
-      setBackfillMsg(r.generated === 0 ? "All videos already have thumbnails." : `Generated ${r.generated} thumbnail${r.generated === 1 ? "" : "s"}.`);
+      const parts: string[] = [];
+      if (auto.matched > 0) parts.push(`Found artwork for ${auto.matched} title${auto.matched === 1 ? "" : "s"}`);
+      if (r.generated > 0) parts.push(`generated ${r.generated} fallback poster${r.generated === 1 ? "" : "s"}`);
+      if (!parts.length) parts.push(auto.scanned ? `Checked ${auto.scanned}, no match found` : "Everything already has a poster.");
+      if (auto.missed.length) parts.push(auto.missed[0]!);
+      setBackfillMsg(parts.join(" · "));
       refresh();
     } catch (e) {
       setBackfillMsg((e as Error).message || "Backfill failed");
@@ -86,11 +95,11 @@ function Admin() {
           <StatCard icon={<Eye className="w-5 h-5" />} label="Total Views" value={String(stats.data?.total_views ?? 0)} />
         </div>
 
-        {/* Thumbnail backfill */}
+        {/* Artwork automation */}
         <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-white">Missing thumbnails?</div>
-            <div className="text-xs text-white/60">Generates a cinematic poster for every video without a thumbnail. Great for MKV / HEVC files the browser can't decode.</div>
+            <div className="text-sm font-semibold text-white">Automatic artwork</div>
+            <div className="text-xs text-white/60">Reads the release filename, looks the title up online, and attaches the real movie poster. Anything without a match falls back to a generated poster.</div>
             {backfillMsg && <div className="mt-1 text-xs text-emerald-400">{backfillMsg}</div>}
           </div>
           <button
@@ -98,7 +107,7 @@ function Admin() {
             className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-500 to-red-700 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 disabled:opacity-50"
           >
             {backfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {backfilling ? "Generating..." : "Generate missing thumbnails"}
+            {backfilling ? "Fetching artwork..." : "Fetch posters automatically"}
           </button>
         </section>
 
@@ -164,7 +173,7 @@ function Admin() {
                     </>
                   )}
                 </div>
-                <button onClick={() => nav({ to: "/watch/$id", params: { id: v.id } })}
+                <button onClick={() => nav({ to: "/watch/$slug", params: { slug: v.slug ?? v.id } })}
                   className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-sm">Watch</button>
                 <button onClick={async () => { if (confirm(`Delete "${v.title}"?`)) { await _del({ data: { id: v.id } }); refresh(); } }}
                   className="p-2 rounded text-white/60 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>

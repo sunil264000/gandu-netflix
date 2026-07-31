@@ -12,6 +12,7 @@ const WINDOW_RAMP = 4; // window multiplier per sequential request
 const FAST_START_ZONE = 16 * 1024 * 1024; // tolerance for "still sequential"
 const PARALLEL_FETCHES = 16; // upstream part reads in flight
 const PREWARM_URL_PARTS = 16; // signed URLs warmed beyond the served window
+const PREVIEW_RESPONSE_BYTES = 1 * 1024 * 1024; // tiny window for scrub previews
 const PREWARM_CACHE_PARTS = 3; // whole parts pushed into edge cache ahead of playback
 
 
@@ -129,7 +130,13 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
 async function handleStream(request: Request, headOnly = false): Promise<Response> {
   const reqId = newRequestId();
   const started = Date.now();
-  const id = new URL(request.url).searchParams.get("id") ?? "";
+  const reqUrl = new URL(request.url);
+  const id = reqUrl.searchParams.get("id") ?? "";
+  // The scrub-preview element streams through the same endpoint but must never
+  // touch the main player's sequential state or trigger read-ahead.
+  const preview = reqUrl.searchParams.get("preview") === "1";
+  // Distinct viewers/tabs track their own sequential window.
+  const sid = reqUrl.searchParams.get("sid") ?? "";
   if (!isUuid(id)) return errorResponse(400, "Bad video id", reqId);
 
   try {
@@ -164,15 +171,18 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     // A fresh seek gets a small window so the first frame decodes instantly.
     // Each sequential follow-up multiplies the window (16MB → 64 → 256 → 512),
     // so steady playback ends up pulling hundreds of MB per connection.
-    const seq = seqCache.get(id);
+    const seqKey = preview ? `${id}:preview` : sid ? `${id}:${sid}` : id;
+    const seq = seqCache.get(seqKey);
     const sequential = !!seq && seq.exp > Date.now() && Math.abs(range.start - seq.nextByte) <= FAST_START_ZONE;
-    const window = sequential
-      ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? START_RESPONSE_BYTES) * WINDOW_RAMP)
-      : START_RESPONSE_BYTES;
+    const window = preview
+      ? PREVIEW_RESPONSE_BYTES
+      : sequential
+        ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? START_RESPONSE_BYTES) * WINDOW_RAMP)
+        : START_RESPONSE_BYTES;
     if (range.end - range.start + 1 > window) {
       range.end = Math.min(range.start + window - 1, total - 1);
     }
-    seqCache.set(id, { nextByte: range.end + 1, window, exp: Date.now() + SEQ_CACHE_MS });
+    seqCache.set(seqKey, { nextByte: range.end + 1, window, exp: Date.now() + SEQ_CACHE_MS });
 
 
     const contentLength = range.end - range.start + 1;
@@ -183,7 +193,7 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       "cache-control": "public, max-age=31536000, immutable",
       "content-range": `bytes ${range.start}-${range.end}/${total}`,
       "x-request-id": reqId,
-      "x-stream-mode": sequential ? "sequential" : "seek",
+      "x-stream-mode": preview ? "preview" : sequential ? "sequential" : "seek",
       "server-timing": `prep;dur=${Date.now() - started}`,
     });
 
@@ -267,6 +277,7 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     // the next few whole parts into the edge cache, so the player's *next*
     // range request is served from cache with near-zero latency.
     const prewarmAhead = () => {
+      if (preview) return;
       const from = lastPart + 1;
       for (let p = from; p < Math.min(from + PREWARM_URL_PARTS, chunkCount); p += 1) {
         void getSignedUrl(`${video.storage_path}.part-${String(p).padStart(6, "0")}`).catch(() => {});

@@ -219,6 +219,17 @@ export const createVideoRecord = createServerFn({ method: "POST" })
       chunk_count: data.uploadMode === "chunked" ? data.chunkCount ?? null : null,
     }).select("id").single();
     if (error) throw error;
+
+    // Automatic artwork: derive the real title from the filename and pull a
+    // poster from public artwork providers. Best-effort, never blocks upload.
+    if (!data.thumbnailPath) {
+      try {
+        const { autoPoster } = await import("@/lib/poster.server");
+        const name = data.storagePath.split("/").pop() || data.title;
+        await autoPoster(sb, row.id, name);
+      } catch { /* fallback poster generation covers this */ }
+    }
+
     return { id: row.id };
   });
 
