@@ -733,6 +733,38 @@ export function VideoPlayer({
                     <span>Mode</span>
                     <span className="text-right font-mono text-red-400">Original (no re-encode)</span>
                   </div>
+
+                  <div className="text-white font-semibold mb-2 text-xs">Audio track</div>
+                  {audioSrc ? (
+                    <div className="mb-3 space-y-1">
+                      <button
+                        onClick={() => { setUseAlt(false); flashToast("Original soundtrack"); }}
+                        className={`w-full px-2 py-1.5 rounded-md text-left text-[11px] font-medium transition ${!useAlt ? "bg-red-600/80 text-white" : "bg-white/10 hover:bg-white/20 text-white/85"}`}
+                      >
+                        Original (lossless, may be silent)
+                      </button>
+                      <button
+                        onClick={() => { setUseAlt(true); flashToast("Companion AAC track"); }}
+                        className={`w-full px-2 py-1.5 rounded-md text-left text-[11px] font-medium transition ${useAlt ? "bg-red-600/80 text-white" : "bg-white/10 hover:bg-white/20 text-white/85"}`}
+                      >
+                        {audioLabel || "Compatible audio (AAC)"}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mb-3 text-[10px] text-white/45 leading-relaxed">
+                      Only the original soundtrack is available. Attach a compatible AAC track in Admin if this
+                      file plays silently.
+                    </p>
+                  )}
+                  {playlistUrl && (
+                    <a
+                      href={playlistUrl}
+                      className="w-full mb-3 px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition flex items-center gap-1.5"
+                    >
+                      <ExternalLink className="w-3 h-3" /> Play in VLC / MPV (original audio)
+                    </a>
+                  )}
+
                   <button
                     onClick={toggleFit}
                     className="w-full mb-1.5 px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-left text-white text-[11px] font-medium transition"
@@ -746,6 +778,7 @@ export function VideoPlayer({
                     Stats for nerds: <span className="font-mono">{stats ? "On" : "Off"}</span>
                   </button>
                   <div className="text-white font-semibold mb-2 text-xs">Keyboard shortcuts</div>
+
 
                   <div className="grid grid-cols-2 gap-y-1">
                     <span>Play / Pause</span><span className="text-right font-mono">Space · K</span>
