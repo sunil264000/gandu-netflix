@@ -161,10 +161,43 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   }, [startAt, onProgress, onEnded, kickHide]);
 
   useEffect(() => {
-    const onFs = () => setFs(!!document.fullscreenElement);
+    const onFs = () => setFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
     document.addEventListener("fullscreenchange", onFs);
-    return () => document.removeEventListener("fullscreenchange", onFs);
+    document.addEventListener("webkitfullscreenchange", onFs as EventListener);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFs);
+      document.removeEventListener("webkitfullscreenchange", onFs as EventListener);
+    };
   }, []);
+
+  // Stall watchdog: if the network response dies mid-range the element can hang
+  // forever on "waiting". Nudge it back to the same position to reopen a range.
+  useEffect(() => {
+    const v = vidRef.current; if (!v) return;
+    let last = -1;
+    let stuck = 0;
+    const iv = setInterval(() => {
+      if (v.paused || v.seeking) { stuck = 0; setStalled(false); return; }
+      if (Math.abs(v.currentTime - last) < 0.02) {
+        stuck += 1;
+        if (stuck === 3) setStalled(true);
+        if (stuck >= 6) {
+          stuck = 0;
+          try {
+            const t = v.currentTime;
+            v.currentTime = Math.min((v.duration || t) - 0.1, t + 0.001);
+            v.play().catch(() => {});
+          } catch { /* ignore */ }
+        }
+      } else {
+        stuck = 0;
+        setStalled(false);
+      }
+      last = v.currentTime;
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [src]);
+
 
   const togglePlay = useCallback(() => { const v = vidRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }, []);
   const seek = useCallback((dt: number) => {
