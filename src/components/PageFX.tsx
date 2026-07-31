@@ -24,6 +24,20 @@ export const fxKeyframes = `
   .fx-input { transition: border-color .2s ease, box-shadow .2s ease, background .2s ease; }
   .fx-input:focus { border-color: rgba(99,102,241,.6) !important; box-shadow: 0 0 0 4px rgba(99,102,241,.15); outline: none; }
   html { scroll-behavior: smooth; }
+  @keyframes gn-drift { 0%,100% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(30px,-24px,0) scale(1.08); } }
+  @keyframes gn-shimmer-bg { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  @keyframes gn-bar { 0% { transform: translateX(-100%); } 100% { transform: translateX(320%); } }
+  @keyframes gn-page-in { from { opacity: 0; transform: translate3d(0,12px,0) scale(.995); filter: blur(6px); } to { opacity: 1; transform: none; filter: blur(0); } }
+  .gn-drift { animation: gn-drift 22s ease-in-out infinite; }
+  .gn-drift-slow { animation: gn-drift 32s ease-in-out infinite reverse; }
+  .gn-shimmer { background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.09) 50%, rgba(255,255,255,.04) 75%); background-size: 200% 100%; animation: gn-shimmer-bg 1.5s linear infinite; }
+  .gn-page-enter { animation: gn-page-in .45s cubic-bezier(.2,.7,.2,1) both; }
+  ::selection { background: rgba(239,68,68,.35); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(239,68,68,.5); background-clip: content-box; }
+  @media (prefers-reduced-motion: reduce) { .gn-page-enter, .gn-drift, .gn-drift-slow { animation: none !important; } }
 `;
 
 export function PageBG() {
@@ -46,7 +60,7 @@ export function PageBG() {
 export function PageTransition({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
-    <div key={pathname} className="fx-page-enter" style={{ position: "relative", zIndex: 1 }}>
+    <div key={pathname} className="gn-page-enter" style={{ position: "relative", zIndex: 1 }}>
       {children}
     </div>
   );
@@ -72,8 +86,21 @@ export function Reveal({ children, delay = 0 }: { children: ReactNode; delay?: n
 export function RouteLoadingBar() {
   const isLoading = useRouterState({ select: (s) => s.isLoading || s.isTransitioning });
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 2, zIndex: 100, pointerEvents: "none", opacity: isLoading ? 1 : 0, transition: "opacity .2s ease" }}>
-      <div style={{ height: "100%", width: isLoading ? "80%" : "0%", background: "linear-gradient(90deg,#3b82f6,#a855f7,#ec4899)", transition: "width .8s ease", boxShadow: "0 0 12px rgba(168,85,247,.6)" }} />
+    <div
+      style={{
+        position: "fixed", top: 0, left: 0, right: 0, height: 3, zIndex: 100,
+        pointerEvents: "none", overflow: "hidden",
+        opacity: isLoading ? 1 : 0, transition: "opacity .25s ease",
+      }}
+    >
+      <div
+        style={{
+          height: "100%", width: "35%",
+          background: "linear-gradient(90deg, transparent, #ef4444, #fb923c, transparent)",
+          boxShadow: "0 0 16px rgba(239,68,68,.8)",
+          animation: isLoading ? "gn-bar 1.1s linear infinite" : "none",
+        }}
+      />
     </div>
   );
 }
