@@ -11,6 +11,9 @@ const MAX_RESPONSE_BYTES = 512 * 1024 * 1024; // steady-state ceiling (~16 parts
 const WINDOW_RAMP = 4; // window multiplier per sequential request
 const FAST_START_ZONE = 16 * 1024 * 1024; // tolerance for "still sequential"
 const PARALLEL_FETCHES = 16; // upstream part reads in flight
+const PREWARM_URL_PARTS = 16; // signed URLs warmed beyond the served window
+const PREWARM_CACHE_PARTS = 3; // whole parts pushed into edge cache ahead of playback
+
 
 const SIGNED_URL_TTL = 60 * 60 * 12;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 11;
@@ -260,6 +263,44 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       throw lastError instanceof Error ? lastError : new Error(String(lastError));
     };
 
+    // Read-ahead: while this response streams, warm the signing cache and push
+    // the next few whole parts into the edge cache, so the player's *next*
+    // range request is served from cache with near-zero latency.
+    const prewarmAhead = () => {
+      const from = lastPart + 1;
+      for (let p = from; p < Math.min(from + PREWARM_URL_PARTS, chunkCount); p += 1) {
+        void getSignedUrl(`${video.storage_path}.part-${String(p).padStart(6, "0")}`).catch(() => {});
+      }
+      if (!edgeCache) return;
+      for (let p = from; p < Math.min(from + PREWARM_CACHE_PARTS, chunkCount); p += 1) {
+        const partPath = `${video.storage_path}.part-${String(p).padStart(6, "0")}`;
+        const key = new Request(
+          `https://vault.stream.internal/${encodeURIComponent(partPath)}?s=0&e=${chunkSize - 1}`,
+        );
+        void (async () => {
+          try {
+            if (await edgeCache.match(key)) return;
+            const signed = await getSignedUrl(partPath);
+            if (!signed) return;
+            const res = await fetchWithTimeout(
+              signed,
+              { headers: { range: `bytes=0-${chunkSize - 1}` } },
+              CHUNK_FETCH_TIMEOUT_MS,
+            );
+            if (!res.body) return;
+            await edgeCache.put(
+              key,
+              new Response(res.body, {
+                headers: { "cache-control": "public, max-age=604800", "content-type": "application/octet-stream" },
+              }),
+            );
+          } catch {
+            /* best effort */
+          }
+        })();
+      }
+    };
+
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         const pending = new Map<number, Promise<Response>>();
@@ -271,6 +312,8 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
           pending.set(p, promise);
         };
         for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) kick(i);
+        prewarmAhead();
+
 
         try {
           for (let i = 0; i < partIndices.length; i += 1) {
