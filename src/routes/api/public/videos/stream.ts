@@ -5,12 +5,18 @@ import { log, newRequestId, errShape } from "@/lib/server-log";
 // continuously instead of restarting a new request every few MB. Browsers
 // naturally throttle their own read speed via TCP backpressure, so a big
 // window doesn't waste bandwidth — it just avoids per-request overhead.
-const MAX_RESPONSE_BYTES = 24 * 1024 * 1024; // 24 MB per range response
-const PARALLEL_FETCHES = 6;
+// Adaptive response window: small first response so playback starts almost
+// instantly, then large windows for sustained sequential playback so 4K/HEVC
+// files stream continuously instead of reopening a request every few MB.
+const START_RESPONSE_BYTES = 2 * 1024 * 1024; // fast-start window near a seek point
+const MAX_RESPONSE_BYTES = 24 * 1024 * 1024; // steady-state window
+const FAST_START_ZONE = 6 * 1024 * 1024; // bytes after a seek that use the small window
+const PARALLEL_FETCHES = 8;
 const SIGNED_URL_TTL = 60 * 60 * 6;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
 const CHUNK_FETCH_RETRIES = 3;
 const CHUNK_FETCH_TIMEOUT_MS = 25_000;
+
 
 type StreamVideo = {
   id: string;
