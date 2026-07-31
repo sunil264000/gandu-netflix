@@ -53,6 +53,13 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
   const [seekFlash, setSeekFlash] = useState<null | "back" | "fwd">(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [fit, setFit] = useState<"contain" | "cover">(() => {
+    if (typeof window === "undefined") return "contain";
+    return localStorage.getItem("vault:fit") === "cover" ? "cover" : "contain";
+  });
+  const [stats, setStats] = useState(false);
+  const [res, setRes] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const [stalled, setStalled] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -61,6 +68,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const lastReport = useRef(0);
   const lastTap = useRef<{ t: number; side: "l" | "r" | null }>({ t: 0, side: null });
   const SNAP_BUCKET = 2; // seconds per cached snapshot
+
 
 
   const kickHide = useCallback(() => {
@@ -93,6 +101,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     const v = vidRef.current; if (!v) return;
     const onLoaded = () => {
       setDuration(v.duration); setLoading(false);
+      setRes({ w: v.videoWidth, h: v.videoHeight });
       if (startAt > 0 && startAt < v.duration - 5) v.currentTime = startAt;
     };
     const onTime = () => {
@@ -152,10 +161,43 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   }, [startAt, onProgress, onEnded, kickHide]);
 
   useEffect(() => {
-    const onFs = () => setFs(!!document.fullscreenElement);
+    const onFs = () => setFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
     document.addEventListener("fullscreenchange", onFs);
-    return () => document.removeEventListener("fullscreenchange", onFs);
+    document.addEventListener("webkitfullscreenchange", onFs as EventListener);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFs);
+      document.removeEventListener("webkitfullscreenchange", onFs as EventListener);
+    };
   }, []);
+
+  // Stall watchdog: if the network response dies mid-range the element can hang
+  // forever on "waiting". Nudge it back to the same position to reopen a range.
+  useEffect(() => {
+    const v = vidRef.current; if (!v) return;
+    let last = -1;
+    let stuck = 0;
+    const iv = setInterval(() => {
+      if (v.paused || v.seeking) { stuck = 0; setStalled(false); return; }
+      if (Math.abs(v.currentTime - last) < 0.02) {
+        stuck += 1;
+        if (stuck === 3) setStalled(true);
+        if (stuck >= 6) {
+          stuck = 0;
+          try {
+            const t = v.currentTime;
+            v.currentTime = Math.min((v.duration || t) - 0.1, t + 0.001);
+            v.play().catch(() => {});
+          } catch { /* ignore */ }
+        }
+      } else {
+        stuck = 0;
+        setStalled(false);
+      }
+      last = v.currentTime;
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [src]);
+
 
   const togglePlay = useCallback(() => { const v = vidRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }, []);
   const seek = useCallback((dt: number) => {
@@ -178,7 +220,23 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     try { localStorage.setItem("vault:rate", String(r)); } catch {}
     flashToast(`${r}× speed`);
   };
-  const toggleFs = () => { if (!document.fullscreenElement) wrapRef.current?.requestFullscreen(); else document.exitFullscreen(); };
+  const toggleFs = () => {
+    const el = wrapRef.current as any;
+    const doc = document as any;
+    if (!(document.fullscreenElement || doc.webkitFullscreenElement)) {
+      (el?.requestFullscreen?.() ?? el?.webkitRequestFullscreen?.())?.catch?.(() => {});
+    } else {
+      (document.exitFullscreen?.() ?? doc.webkitExitFullscreen?.())?.catch?.(() => {});
+    }
+  };
+  const toggleFit = () => {
+    setFit((f) => {
+      const next = f === "contain" ? "cover" : "contain";
+      try { localStorage.setItem("vault:fit", next); } catch { /* ignore */ }
+      flashToast(next === "cover" ? "Fill screen" : "Fit to screen");
+      return next;
+    });
+  };
   const pip = async () => {
     const v = vidRef.current; if (!v) return;
     try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await v.requestPictureInPicture(); } catch {}
@@ -254,7 +312,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
         ref={vidRef}
         src={src}
         poster={poster ?? undefined}
-        className="w-full h-full object-contain touch-manipulation"
+        className={`w-full h-full touch-manipulation ${fit === "cover" ? "object-cover" : "object-contain"}`}
         style={{ imageRendering: "auto" }}
         autoPlay={autoPlay}
         playsInline
@@ -272,6 +330,21 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
           <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm grid place-items-center">
             <Loader2 className="w-9 h-9 text-white animate-spin" />
           </div>
+        </div>
+      )}
+
+      {stalled && !loading && (
+        <div className="absolute top-4 left-4 bg-black/70 backdrop-blur px-3 py-1.5 rounded-full text-[11px] text-amber-300 pointer-events-none">
+          Buffering… recovering stream
+        </div>
+      )}
+
+      {stats && (
+        <div className="absolute top-4 right-4 bg-black/80 backdrop-blur rounded-lg px-3 py-2 text-[10px] font-mono text-white/80 leading-relaxed pointer-events-none">
+          <div>res <span className="text-white">{res.w ? `${res.w}×${res.h}` : "—"}</span></div>
+          <div>time <span className="text-white">{fmt(current)}</span> / {fmt(duration)}</div>
+          <div>buffer ahead <span className="text-white">{Math.max(0, buffered - current).toFixed(1)}s</span></div>
+          <div>rate <span className="text-white">{rate}×</span> · fit {fit}</div>
         </div>
       )}
 
@@ -444,7 +517,27 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
               </button>
               {menu === "settings" && (
                 <div className="absolute bottom-full right-0 mb-2 bg-black/95 border border-white/10 rounded-lg p-3 shadow-xl w-64 text-[11px] text-white/80">
+                  <div className="text-white font-semibold mb-2 text-xs">Quality &amp; display</div>
+                  <div className="grid grid-cols-2 gap-y-1 mb-3">
+                    <span>Source</span>
+                    <span className="text-right font-mono text-white">{res.w ? `${res.w}×${res.h}` : "—"}</span>
+                    <span>Mode</span>
+                    <span className="text-right font-mono text-red-400">Original (no re-encode)</span>
+                  </div>
+                  <button
+                    onClick={toggleFit}
+                    className="w-full mb-1.5 px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-left text-white text-[11px] font-medium transition"
+                  >
+                    Screen fit: <span className="font-mono">{fit === "cover" ? "Fill" : "Fit"}</span>
+                  </button>
+                  <button
+                    onClick={() => setStats((s) => !s)}
+                    className="w-full mb-3 px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-left text-white text-[11px] font-medium transition"
+                  >
+                    Stats for nerds: <span className="font-mono">{stats ? "On" : "Off"}</span>
+                  </button>
                   <div className="text-white font-semibold mb-2 text-xs">Keyboard shortcuts</div>
+
                   <div className="grid grid-cols-2 gap-y-1">
                     <span>Play / Pause</span><span className="text-right font-mono">Space · K</span>
                     <span>Seek ±5s</span><span className="text-right font-mono">← →</span>

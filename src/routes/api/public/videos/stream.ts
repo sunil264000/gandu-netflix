@@ -5,12 +5,18 @@ import { log, newRequestId, errShape } from "@/lib/server-log";
 // continuously instead of restarting a new request every few MB. Browsers
 // naturally throttle their own read speed via TCP backpressure, so a big
 // window doesn't waste bandwidth — it just avoids per-request overhead.
-const MAX_RESPONSE_BYTES = 24 * 1024 * 1024; // 24 MB per range response
-const PARALLEL_FETCHES = 6;
+// Adaptive response window: small first response so playback starts almost
+// instantly, then large windows for sustained sequential playback so 4K/HEVC
+// files stream continuously instead of reopening a request every few MB.
+const START_RESPONSE_BYTES = 2 * 1024 * 1024; // fast-start window near a seek point
+const MAX_RESPONSE_BYTES = 24 * 1024 * 1024; // steady-state window
+const FAST_START_ZONE = 6 * 1024 * 1024; // bytes after a seek that use the small window
+const PARALLEL_FETCHES = 8;
 const SIGNED_URL_TTL = 60 * 60 * 6;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
 const CHUNK_FETCH_RETRIES = 3;
 const CHUNK_FETCH_TIMEOUT_MS = 25_000;
+
 
 type StreamVideo = {
   id: string;
@@ -26,13 +32,15 @@ type StreamVideo = {
 const videoCache = new Map<string, { v: StreamVideo; exp: number }>();
 const urlCache = new Map<string, { url: string; exp: number }>();
 const VIDEO_CACHE_MS = 60_000;
+const seqCache = new Map<string, { nextByte: number; exp: number }>();
+const SEQ_CACHE_MS = 30_000;
 
 const BASE_HEADERS = {
   "accept-ranges": "bytes",
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, HEAD, OPTIONS",
   "access-control-allow-headers": "range",
-  "access-control-expose-headers": "content-range, content-length, accept-ranges, x-request-id",
+  "access-control-expose-headers": "content-range, content-length, accept-ranges, x-request-id, x-stream-mode",
   "x-content-type-options": "nosniff",
 };
 
@@ -125,9 +133,15 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       });
     }
 
-    if (range.end - range.start + 1 > MAX_RESPONSE_BYTES) {
-      range.end = Math.min(range.start + MAX_RESPONSE_BYTES - 1, total - 1);
+    // Sequential playback gets the big window; a fresh seek gets a small one
+    // so the first bytes land immediately and the player can start decoding.
+    const seq = seqCache.get(id);
+    const sequential = !!seq && seq.exp > Date.now() && Math.abs(range.start - seq.nextByte) <= FAST_START_ZONE;
+    const window = sequential ? MAX_RESPONSE_BYTES : START_RESPONSE_BYTES;
+    if (range.end - range.start + 1 > window) {
+      range.end = Math.min(range.start + window - 1, total - 1);
     }
+    seqCache.set(id, { nextByte: range.end + 1, exp: Date.now() + SEQ_CACHE_MS });
 
     const contentLength = range.end - range.start + 1;
     const headers = new Headers({
@@ -137,8 +151,10 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       "cache-control": "public, max-age=31536000, immutable",
       "content-range": `bytes ${range.start}-${range.end}/${total}`,
       "x-request-id": reqId,
+      "x-stream-mode": sequential ? "sequential" : "seek",
       "server-timing": `prep;dur=${Date.now() - started}`,
     });
+
     if (headOnly) return new Response(null, { status: 206, headers });
 
     const firstPart = Math.floor(range.start / chunkSize);
