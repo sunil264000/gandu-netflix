@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Heart, ArrowLeft, Play, Share2, Clock, Info, Headphones, ExternalLink, Copy } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoPlayer } from "@/components/VideoPlayer";
+import { TurboDownload } from "@/components/TurboDownload";
+
 import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite } from "@/lib/videos.functions";
 
 export const Route = createFileRoute("/watch/$slug")({
@@ -180,7 +182,13 @@ function Watch() {
                     >
                       <Copy className="w-3.5 h-3.5" /> {copied ? "Copied" : "Copy stream URL"}
                     </button>
+                    <TurboDownload
+                      videoId={vid.id}
+                      sizeBytes={Number(vid.size_bytes ?? 0)}
+                      fileName={`${vid.title}.${(((vid as { storage_path?: string }).storage_path ?? "").split(".").pop() || "mp4").toLowerCase()}`}
+                    />
                   </div>
+
                 </div>
                 {showTip && (
                   <div className="mt-2 flex items-start gap-2 text-[11px] text-zinc-400 bg-zinc-900/60 border border-white/5 rounded-lg px-3 py-2">

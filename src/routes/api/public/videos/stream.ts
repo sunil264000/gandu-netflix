@@ -14,6 +14,11 @@ const PARALLEL_FETCHES = 16; // upstream part reads in flight
 const PREWARM_URL_PARTS = 16; // signed URLs warmed beyond the served window
 const PREVIEW_RESPONSE_BYTES = 1 * 1024 * 1024; // tiny window for scrub previews
 const PREWARM_CACHE_PARTS = 3; // whole parts pushed into edge cache ahead of playback
+// Download mode: the client opens many connections itself, so each response
+// should honour the exact requested range (no ramping, no read-ahead) and just
+// move bytes as fast as the upstream allows.
+const DOWNLOAD_MAX_RESPONSE_BYTES = 128 * 1024 * 1024;
+
 
 
 const SIGNED_URL_TTL = 60 * 60 * 12;
@@ -135,6 +140,9 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
   // The scrub-preview element streams through the same endpoint but must never
   // touch the main player's sequential state or trigger read-ahead.
   const preview = reqUrl.searchParams.get("preview") === "1";
+  // Download mode: exact-range pass-through, attachment disposition.
+  const download = reqUrl.searchParams.get("dl") === "1";
+  const dlName = (reqUrl.searchParams.get("name") ?? "").replace(/[^\w.\-() ]+/g, "_").slice(0, 180);
   // Distinct viewers/tabs track their own sequential window.
   const sid = reqUrl.searchParams.get("sid") ?? "";
   if (!isUuid(id)) return errorResponse(400, "Bad video id", reqId);
@@ -149,7 +157,10 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
         log("error", "stream.sign_failed", { reqId, id });
         return errorResponse(502, "Stream URL unavailable", reqId);
       }
-      return Response.redirect(signed, 302);
+      const target = download
+        ? `${signed}${signed.includes("?") ? "&" : "?"}download=${encodeURIComponent(dlName || "video")}`
+        : signed;
+      return Response.redirect(target, 302);
     }
 
     const total = Number(video.size_bytes);
@@ -172,30 +183,34 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     // Each sequential follow-up multiplies the window (16MB → 64 → 256 → 512),
     // so steady playback ends up pulling hundreds of MB per connection.
     const seqKey = preview ? `${id}:preview` : sid ? `${id}:${sid}` : id;
-    const seq = seqCache.get(seqKey);
+    const seq = download ? undefined : seqCache.get(seqKey);
     const sequential = !!seq && seq.exp > Date.now() && Math.abs(range.start - seq.nextByte) <= FAST_START_ZONE;
-    const window = preview
-      ? PREVIEW_RESPONSE_BYTES
-      : sequential
-        ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? START_RESPONSE_BYTES) * WINDOW_RAMP)
-        : START_RESPONSE_BYTES;
+    const window = download
+      ? DOWNLOAD_MAX_RESPONSE_BYTES
+      : preview
+        ? PREVIEW_RESPONSE_BYTES
+        : sequential
+          ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? START_RESPONSE_BYTES) * WINDOW_RAMP)
+          : START_RESPONSE_BYTES;
     if (range.end - range.start + 1 > window) {
       range.end = Math.min(range.start + window - 1, total - 1);
     }
-    seqCache.set(seqKey, { nextByte: range.end + 1, window, exp: Date.now() + SEQ_CACHE_MS });
+    if (!download) seqCache.set(seqKey, { nextByte: range.end + 1, window, exp: Date.now() + SEQ_CACHE_MS });
 
 
     const contentLength = range.end - range.start + 1;
     const headers = new Headers({
       ...BASE_HEADERS,
-      "content-type": normalizeMime(video.mime_type, video.storage_path),
+      "content-type": download ? "application/octet-stream" : normalizeMime(video.mime_type, video.storage_path),
       "content-length": String(contentLength),
       "cache-control": "public, max-age=31536000, immutable",
       "content-range": `bytes ${range.start}-${range.end}/${total}`,
       "x-request-id": reqId,
-      "x-stream-mode": preview ? "preview" : sequential ? "sequential" : "seek",
+      "x-stream-mode": download ? "download" : preview ? "preview" : sequential ? "sequential" : "seek",
       "server-timing": `prep;dur=${Date.now() - started}`,
     });
+    if (download) headers.set("content-disposition", `attachment; filename="${dlName || "video"}"`);
+
 
     if (headOnly) return new Response(null, { status: 206, headers });
 
@@ -277,7 +292,7 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     // the next few whole parts into the edge cache, so the player's *next*
     // range request is served from cache with near-zero latency.
     const prewarmAhead = () => {
-      if (preview) return;
+      if (preview || download) return;
       const from = lastPart + 1;
       for (let p = from; p < Math.min(from + PREWARM_URL_PARTS, chunkCount); p += 1) {
         void getSignedUrl(`${video.storage_path}.part-${String(p).padStart(6, "0")}`).catch(() => {});
