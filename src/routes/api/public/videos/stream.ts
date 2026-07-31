@@ -8,10 +8,11 @@ import { log, newRequestId, errShape } from "@/lib/server-log";
 // Adaptive response window: small first response so playback starts almost
 // instantly, then large windows for sustained sequential playback so 4K/HEVC
 // files stream continuously instead of reopening a request every few MB.
-const START_RESPONSE_BYTES = 8 * 1024 * 1024; // fast-start window near a seek point
-const MAX_RESPONSE_BYTES = 24 * 1024 * 1024; // steady-state window
-const FAST_START_ZONE = 6 * 1024 * 1024; // bytes after a seek that use the small window
-const PARALLEL_FETCHES = 8;
+const START_RESPONSE_BYTES = 6 * 1024 * 1024; // fast-start window near a seek point
+const MAX_RESPONSE_BYTES = 32 * 1024 * 1024; // steady-state window
+const FAST_START_ZONE = 8 * 1024 * 1024; // bytes after a seek that use the small window
+const PARALLEL_FETCHES = 12;
+
 const SIGNED_URL_TTL = 60 * 60 * 6;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
 const CHUNK_FETCH_RETRIES = 3;
@@ -185,13 +186,34 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     const partIndices: number[] = [];
     for (let p = firstPart; p <= lastPart; p += 1) partIndices.push(p);
 
-    const fetchPartRange = async (part: number): Promise<Uint8Array> => {
-      const partPath = `${video.storage_path}.part-${String(part).padStart(6, "0")}`;
+    // Pass-through streaming: every part request is opened in parallel, but
+    // bodies are piped straight to the client in order as they arrive. Nothing
+    // is buffered into memory, so time-to-first-byte is the latency of one
+    // upstream request instead of a whole chunk download.
+    const partRangeOf = (part: number) => {
       const partStartByte = part * chunkSize;
       const sliceStart = Math.max(0, range.start - partStartByte);
-      const partEndByte = partStartByte + chunkSize - 1;
-      const sliceEndAbs = Math.min(partEndByte, range.end);
-      const sliceEnd = sliceEndAbs - partStartByte;
+      const sliceEndAbs = Math.min(partStartByte + chunkSize - 1, range.end);
+      return { sliceStart, sliceEnd: sliceEndAbs - partStartByte };
+    };
+
+    const edgeCache: Cache | undefined = (globalThis as any).caches?.default;
+
+    const openPart = async (part: number): Promise<Response> => {
+      const partPath = `${video.storage_path}.part-${String(part).padStart(6, "0")}`;
+      const { sliceStart, sliceEnd } = partRangeOf(part);
+      const cacheKey = new Request(
+        `https://vault.stream.internal/${encodeURIComponent(partPath)}?s=${sliceStart}&e=${sliceEnd}`,
+      );
+
+      if (edgeCache) {
+        try {
+          const cached = await edgeCache.match(cacheKey);
+          if (cached?.body) return cached;
+        } catch {
+          /* cache miss / unsupported */
+        }
+      }
 
       let lastError: unknown;
       for (let attempt = 0; attempt < CHUNK_FETCH_RETRIES; attempt += 1) {
@@ -203,11 +225,23 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
             { headers: { range: `bytes=${sliceStart}-${sliceEnd}` } },
             CHUNK_FETCH_TIMEOUT_MS,
           );
-          if (res.status === 206 || res.status === 200) {
-            const buf = await res.arrayBuffer();
-            return new Uint8Array(buf);
+          if ((res.status === 206 || res.status === 200) && res.body) {
+            if (edgeCache) {
+              try {
+                const [toCache, toClient] = res.body.tee();
+                void edgeCache.put(
+                  cacheKey,
+                  new Response(toCache, {
+                    headers: { "cache-control": "public, max-age=604800", "content-type": "application/octet-stream" },
+                  }),
+                );
+                return new Response(toClient);
+              } catch {
+                return res;
+              }
+            }
+            return res;
           }
-          // Invalidate cache on 4xx (signed URL may have expired mid-flight)
           if (res.status === 400 || res.status === 401 || res.status === 403) {
             urlCache.delete(partPath);
           }
@@ -216,28 +250,35 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
           lastError = e;
           urlCache.delete(partPath);
         }
-        // Exponential backoff with jitter
-        await new Promise((r) => setTimeout(r, 100 * 2 ** attempt + Math.random() * 100));
+        await new Promise((r) => setTimeout(r, 60 * 2 ** attempt + Math.random() * 60));
       }
       throw lastError instanceof Error ? lastError : new Error(String(lastError));
     };
 
-    const body = new ReadableStream({
+    const body = new ReadableStream<Uint8Array>({
       async start(controller) {
-        try {
-          const pending = new Map<number, Promise<Uint8Array>>();
-          const kick = (idx: number) => {
-            if (idx >= partIndices.length) return;
-            pending.set(partIndices[idx], fetchPartRange(partIndices[idx]));
-          };
-          for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) kick(i);
+        const pending = new Map<number, Promise<Response>>();
+        const kick = (idx: number) => {
+          if (idx >= partIndices.length) return;
+          const p = partIndices[idx];
+          const promise = openPart(p);
+          promise.catch(() => {}); // avoid unhandled rejection before we await it
+          pending.set(p, promise);
+        };
+        for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) kick(i);
 
+        try {
           for (let i = 0; i < partIndices.length; i += 1) {
             const part = partIndices[i];
-            const bytes = await pending.get(part)!;
+            const res = await pending.get(part)!;
             pending.delete(part);
             kick(i + PARALLEL_FETCHES);
-            controller.enqueue(bytes);
+            const reader = res.body!.getReader();
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              controller.enqueue(value);
+            }
           }
           controller.close();
         } catch (streamError) {
@@ -248,6 +289,7 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     });
 
     return new Response(body, { status: 206, headers });
+
   } catch (err) {
     log("error", "stream.unhandled", { reqId, id, err: errShape(err) });
     return errorResponse(500, "Stream error", reqId);
