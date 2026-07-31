@@ -593,8 +593,13 @@ export function VideoPlayer({
           <div>time <span className="text-white">{fmt(current)}</span> / {fmt(duration)}</div>
           <div>buffer ahead <span className="text-white">{Math.max(0, buffered - current).toFixed(1)}s</span></div>
           <div>rate <span className="text-white">{rate}×</span> · fit {fit}</div>
+          <div>
+            audio <span className="text-white">{audioSrc ? (useAlt ? "companion AAC" : "original") : "original"}</span>
+            {audioSrc && useAlt ? <> · drift <span className="text-white">{(drift * 1000).toFixed(0)}ms</span>{altReady ? "" : " (loading)"}</> : null}
+          </div>
         </div>
       )}
+
 
       {seekFlash && (
         <div className={`absolute inset-y-0 ${seekFlash === "back" ? "left-0" : "right-0"} w-1/3 grid place-items-center pointer-events-none animate-in fade-in zoom-in-95 duration-200`}>
