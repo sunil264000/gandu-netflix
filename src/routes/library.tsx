@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { AppHeader } from "@/components/AppHeader";
-import { VideoCard, VideoGridSkeleton } from "@/components/VideoCard";
+import { Page, PageHeading } from "@/components/PageShell";
+import { VideoCard, VideoGridSkeleton, gridCls } from "@/components/VideoCard";
 import { listVideos, listCategories } from "@/lib/videos.functions";
 
 export const Route = createFileRoute("/library")({
@@ -28,33 +28,63 @@ function Library() {
     queryFn: () => _list({ data: { sort, categoryId: cat, limit: 60 } }),
   });
 
+  const sorts = [
+    { k: "new", label: "Newest" },
+    { k: "az", label: "A → Z" },
+    { k: "large", label: "Largest" },
+    { k: "views", label: "Most Watched" },
+  ] as const;
+  const count = list.data?.length ?? 0;
+
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      <AppHeader />
-      <main className="max-w-[1600px] mx-auto px-6 py-8">
-        <div className="flex flex-wrap items-center gap-3 mb-6">
-          <h1 className="text-2xl font-bold mr-auto">Library</h1>
-          <select value={sort} onChange={(e) => setSort(e.target.value as any)}
-            className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500/60">
-            <option value="new">Newest</option>
-            <option value="az">A → Z</option>
-            <option value="large">Largest</option>
-            <option value="views">Most Watched</option>
-          </select>
-          <select value={cat ?? ""} onChange={(e) => setCat(e.target.value || null)}
-            className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500/60">
-            <option value="">All Categories</option>
-            {(cats.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+    <Page>
+      <PageHeading
+        title="Library"
+        subtitle={list.isLoading ? "Loading your collection…" : `${count} title${count === 1 ? "" : "s"}`}
+      />
+
+      <div className="sticky top-14 z-20 -mx-4 mb-6 flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-[#08080a]/80 px-4 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {sorts.map((s) => (
+            <button
+              key={s.k}
+              onClick={() => setSort(s.k)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                sort === s.k
+                  ? "bg-red-500 text-white shadow-[0_10px_28px_-12px_rgba(239,68,68,.9)]"
+                  : "border border-white/[0.08] bg-white/[0.04] text-white/55 hover:bg-white/[0.09] hover:text-white"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
-        {list.isLoading ? <VideoGridSkeleton count={18} /> : (list.data?.length ?? 0) === 0 ? (
-          <p className="text-white/50 text-center py-24">No videos yet.</p>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-            {(list.data ?? []).map((v) => <VideoCard key={v.id} v={v} />)}
-          </div>
-        )}
-      </main>
-    </div>
+        <select
+          value={cat ?? ""}
+          onChange={(e) => setCat(e.target.value || null)}
+          className="ml-auto rounded-full border border-white/[0.08] bg-white/[0.04] px-3.5 py-1.5 text-xs font-semibold text-white/80 outline-none transition focus:border-red-500/50"
+        >
+          <option value="">All Categories</option>
+          {(cats.data ?? []).map((c) => (
+            <option key={c.id} value={c.id} className="bg-[#111]">{c.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {list.isLoading ? (
+        <VideoGridSkeleton count={18} />
+      ) : count === 0 ? (
+        <div className="py-28 text-center">
+          <p className="text-lg font-semibold text-white/70">Nothing here yet</p>
+          <p className="mt-1 text-sm text-white/40">Try a different category or upload something new.</p>
+        </div>
+      ) : (
+        <div className={gridCls}>
+          {(list.data ?? []).map((v, i) => (
+            <VideoCard key={v.id} v={v} index={i} />
+          ))}
+        </div>
+      )}
+    </Page>
   );
 }
