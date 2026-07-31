@@ -514,6 +514,18 @@ export function VideoPlayer({
         style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none", left: -9999, top: -9999 }}
       />
 
+      {/* Companion AAC soundtrack, clock-locked to the video element */}
+      {audioSrc && (
+        <audio
+          ref={altRef}
+          src={audioSrc}
+          preload="auto"
+          crossOrigin="anonymous"
+          aria-hidden
+          tabIndex={-1}
+          style={{ display: "none" }}
+        />
+      )}
 
       {loading && (
         <div className="absolute inset-0 grid place-items-center pointer-events-none">
@@ -531,33 +543,48 @@ export function VideoPlayer({
 
       {noAudio && !noAudioDismissed && (
         <div
-          className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-[90%] bg-black/85 backdrop-blur border border-primary/40 rounded-xl px-4 py-3 text-xs text-white/85 shadow-xl"
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-20 w-[min(92%,30rem)] bg-black/90 backdrop-blur border border-red-500/40 rounded-xl px-4 py-3 text-xs text-white/85 shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <p className="font-semibold text-white mb-1">No sound? This file's audio track can't be decoded here</p>
-          <p className="text-white/60 leading-relaxed">
-            It uses Dolby Digital+/DTS/TrueHD, which browsers can't play. The video is fine — open the
-            original in a desktop player (VLC/MPV) for full audio.
+          <p className="font-semibold text-white mb-1 flex items-center gap-1.5">
+            <AudioLines className="w-3.5 h-3.5 text-red-400" />
+            No sound — this soundtrack can't be decoded in a browser
           </p>
-          <div className="flex gap-2 mt-2">
-            <a
-              href={src}
-              target="_blank"
-              rel="noreferrer"
-              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium"
+          <p className="text-white/60 leading-relaxed">
+            It's Dolby Digital+/DTS/TrueHD. Netflix and Hotstar avoid this by shipping a separate AAC
+            rendition; this file only has the original. Play it in a desktop player for full lossless audio,
+            or attach a compatible audio track from Admin.
+          </p>
+          <div className="flex flex-wrap gap-2 mt-2.5">
+            {playlistUrl && (
+              <a
+                href={playlistUrl}
+                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold inline-flex items-center gap-1.5 transition"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Open in VLC / MPV
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const abs = new URL(src, window.location.origin).toString();
+                navigator.clipboard?.writeText(abs).then(() => flashToast("Stream link copied")).catch(() => {});
+              }}
+              className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/85 font-medium transition"
             >
-              Open original
-            </a>
+              Copy stream link
+            </button>
             <button
               type="button"
               onClick={() => setNoAudioDismissed(true)}
-              className="px-3 py-1.5 rounded-lg bg-white/10 text-white/80"
+              className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-white/60 transition"
             >
               Dismiss
             </button>
           </div>
         </div>
       )}
+
 
 
       {stats && (
