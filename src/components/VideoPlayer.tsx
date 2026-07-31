@@ -101,6 +101,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
     const v = vidRef.current; if (!v) return;
     const onLoaded = () => {
       setDuration(v.duration); setLoading(false);
+      setRes({ w: v.videoWidth, h: v.videoHeight });
       if (startAt > 0 && startAt < v.duration - 5) v.currentTime = startAt;
     };
     const onTime = () => {
