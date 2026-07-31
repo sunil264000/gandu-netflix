@@ -406,14 +406,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
               }
             }
             setPreviewFrame(best);
-            // Debounced preview seek — fallback for unseen positions
-            if (previewSeekTimer.current) clearTimeout(previewSeekTimer.current);
-            previewSeekTimer.current = setTimeout(() => {
-              const pv = previewRef.current;
-              if (pv && isFinite(pv.duration)) {
-                try { pv.currentTime = p * pv.duration; } catch {}
-              }
-            }, 120);
+
           }}
           onPointerUp={(e) => {
             (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
