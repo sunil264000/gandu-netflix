@@ -69,7 +69,9 @@ function Admin() {
       const parts: string[] = [];
       if (auto.matched > 0) parts.push(`Found artwork for ${auto.matched} title${auto.matched === 1 ? "" : "s"}`);
       if (r.generated > 0) parts.push(`generated ${r.generated} fallback poster${r.generated === 1 ? "" : "s"}`);
-      setBackfillMsg(parts.length ? parts.join(" · ") : "Everything already has a poster.");
+      if (!parts.length) parts.push(auto.scanned ? `Checked ${auto.scanned}, no match found` : "Everything already has a poster.");
+      if (auto.missed.length) parts.push(auto.missed[0]!);
+      setBackfillMsg(parts.join(" · "));
       refresh();
     } catch (e) {
       setBackfillMsg((e as Error).message || "Backfill failed");

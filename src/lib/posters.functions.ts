@@ -55,9 +55,13 @@ export const autoPosterSweep = createServerFn({ method: "POST" })
     const failures: string[] = [];
     for (const row of targets) {
       const name = sourceName(row.title, row.storage_path);
-      const res = await autoPoster(supabaseAdmin, row.id, name);
-      if (res.ok) matched += 1;
-      else failures.push(row.title);
+      try {
+        const res = await autoPoster(supabaseAdmin, row.id, name);
+        if (res.ok) matched += 1;
+        else failures.push(`${row.title}: ${res.reason}`);
+      } catch (e) {
+        failures.push(`${row.title}: ${(e as Error).message}`);
+      }
     }
     return { scanned: targets.length, matched, missed: failures.slice(0, 8) };
   });
