@@ -333,6 +333,21 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
         </div>
       )}
 
+      {stalled && !loading && (
+        <div className="absolute top-4 left-4 bg-black/70 backdrop-blur px-3 py-1.5 rounded-full text-[11px] text-amber-300 pointer-events-none">
+          Buffering… recovering stream
+        </div>
+      )}
+
+      {stats && (
+        <div className="absolute top-4 right-4 bg-black/80 backdrop-blur rounded-lg px-3 py-2 text-[10px] font-mono text-white/80 leading-relaxed pointer-events-none">
+          <div>res <span className="text-white">{res.w ? `${res.w}×${res.h}` : "—"}</span></div>
+          <div>time <span className="text-white">{fmt(current)}</span> / {fmt(duration)}</div>
+          <div>buffer ahead <span className="text-white">{Math.max(0, buffered - current).toFixed(1)}s</span></div>
+          <div>rate <span className="text-white">{rate}×</span> · fit {fit}</div>
+        </div>
+      )}
+
       {seekFlash && (
         <div className={`absolute inset-y-0 ${seekFlash === "back" ? "left-0" : "right-0"} w-1/3 grid place-items-center pointer-events-none animate-in fade-in zoom-in-95 duration-200`}>
           <div className="bg-black/60 backdrop-blur rounded-full w-20 h-20 grid place-items-center text-white">
