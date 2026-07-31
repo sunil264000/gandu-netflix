@@ -158,15 +158,19 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       });
     }
 
-    // Sequential playback gets the big window; a fresh seek gets a small one
-    // so the first bytes land immediately and the player can start decoding.
+    // A fresh seek gets a small window so the first frame decodes instantly.
+    // Each sequential follow-up multiplies the window (16MB → 64 → 256 → 512),
+    // so steady playback ends up pulling hundreds of MB per connection.
     const seq = seqCache.get(id);
     const sequential = !!seq && seq.exp > Date.now() && Math.abs(range.start - seq.nextByte) <= FAST_START_ZONE;
-    const window = sequential ? MAX_RESPONSE_BYTES : START_RESPONSE_BYTES;
+    const window = sequential
+      ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? START_RESPONSE_BYTES) * WINDOW_RAMP)
+      : START_RESPONSE_BYTES;
     if (range.end - range.start + 1 > window) {
       range.end = Math.min(range.start + window - 1, total - 1);
     }
-    seqCache.set(id, { nextByte: range.end + 1, exp: Date.now() + SEQ_CACHE_MS });
+    seqCache.set(id, { nextByte: range.end + 1, window, exp: Date.now() + SEQ_CACHE_MS });
+
 
     const contentLength = range.end - range.start + 1;
     const headers = new Headers({
