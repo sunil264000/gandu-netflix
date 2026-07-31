@@ -8,7 +8,7 @@ import { log, newRequestId, errShape } from "@/lib/server-log";
 // Adaptive response window: small first response so playback starts almost
 // instantly, then large windows for sustained sequential playback so 4K/HEVC
 // files stream continuously instead of reopening a request every few MB.
-const START_RESPONSE_BYTES = 2 * 1024 * 1024; // fast-start window near a seek point
+const START_RESPONSE_BYTES = 8 * 1024 * 1024; // fast-start window near a seek point
 const MAX_RESPONSE_BYTES = 24 * 1024 * 1024; // steady-state window
 const FAST_START_ZONE = 6 * 1024 * 1024; // bytes after a seek that use the small window
 const PARALLEL_FETCHES = 8;
@@ -16,6 +16,29 @@ const SIGNED_URL_TTL = 60 * 60 * 6;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
 const CHUNK_FETCH_RETRIES = 3;
 const CHUNK_FETCH_TIMEOUT_MS = 25_000;
+
+// Browsers demux by Content-Type. Uploads recorded some files as the invalid
+// "video/matroska" (and some as octet-stream), which makes Chrome fall back to
+// byte sniffing — linear playback limps along but seeks land on black frames
+// with no audio. Map to the real container types instead.
+const EXT_MIME: Record<string, string> = {
+  mkv: "video/x-matroska",
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+  avi: "video/x-msvideo",
+  ts: "video/mp2t",
+};
+
+function normalizeMime(mime: string | null, path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const byExt = EXT_MIME[ext];
+  if (byExt) return byExt;
+  if (!mime || mime === "application/octet-stream") return "video/mp4";
+  if (mime === "video/matroska" || mime === "video/mkv") return "video/x-matroska";
+  return mime;
+}
 
 
 type StreamVideo = {
@@ -146,7 +169,7 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     const contentLength = range.end - range.start + 1;
     const headers = new Headers({
       ...BASE_HEADERS,
-      "content-type": video.mime_type || "application/octet-stream",
+      "content-type": normalizeMime(video.mime_type, video.storage_path),
       "content-length": String(contentLength),
       "cache-control": "public, max-age=31536000, immutable",
       "content-range": `bytes ${range.start}-${range.end}/${total}`,

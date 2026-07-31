@@ -27,7 +27,6 @@ const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
-  const previewRef = useRef<HTMLVideoElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -62,7 +61,6 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
   const [stalled, setStalled] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const previewSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snapCache = useRef<Map<number, string>>(new Map());
   const lastSnap = useRef(0);
   const lastReport = useRef(0);
@@ -406,14 +404,7 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
               }
             }
             setPreviewFrame(best);
-            // Debounced preview seek — fallback for unseen positions
-            if (previewSeekTimer.current) clearTimeout(previewSeekTimer.current);
-            previewSeekTimer.current = setTimeout(() => {
-              const pv = previewRef.current;
-              if (pv && isFinite(pv.duration)) {
-                try { pv.currentTime = p * pv.duration; } catch {}
-              }
-            }, 120);
+
           }}
           onPointerUp={(e) => {
             (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
@@ -439,38 +430,11 @@ export function VideoPlayer({ src, poster, startAt = 0, onProgress, onEnded, aut
                   {previewFrame ? (
                     <img src={previewFrame} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <>
-                      <video
-                        ref={previewRef}
-                        src={src}
-                        className="w-full h-full object-contain"
-                        muted
-                        playsInline
-                        preload="metadata"
-                        crossOrigin="anonymous"
-                        onSeeked={(e) => {
-                          const pv = e.currentTarget;
-                          if (pv.videoWidth === 0) return;
-                          try {
-                            const c = document.createElement("canvas");
-                            const W = 240; const H = Math.round((pv.videoHeight / pv.videoWidth) * W) || 135;
-                            c.width = W; c.height = H;
-                            const ctx = c.getContext("2d");
-                            if (ctx) {
-                              ctx.drawImage(pv, 0, 0, W, H);
-                              const url = c.toDataURL("image/jpeg", 0.6);
-                              const bucket = Math.round(pv.currentTime / SNAP_BUCKET);
-                              snapCache.current.set(bucket, url);
-                              setPreviewFrame(url);
-                            }
-                          } catch {}
-                        }}
-                      />
-                      <div className="absolute inset-0 grid place-items-center bg-black/40">
-                        <Loader2 className="w-5 h-5 text-white/70 animate-spin" />
-                      </div>
-                    </>
+                    <div className="absolute inset-0 grid place-items-center bg-zinc-900 text-[10px] text-white/50 font-mono">
+                      {fmt(hoverTime)}
+                    </div>
                   )}
+
                 </div>
                 <div className="bg-black/90 text-white text-[11px] px-2 py-0.5 rounded font-mono">{fmt(hoverTime)}</div>
               </div>
