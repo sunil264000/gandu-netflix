@@ -17,6 +17,29 @@ const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 5;
 const CHUNK_FETCH_RETRIES = 3;
 const CHUNK_FETCH_TIMEOUT_MS = 25_000;
 
+// Browsers demux by Content-Type. Uploads recorded some files as the invalid
+// "video/matroska" (and some as octet-stream), which makes Chrome fall back to
+// byte sniffing — linear playback limps along but seeks land on black frames
+// with no audio. Map to the real container types instead.
+const EXT_MIME: Record<string, string> = {
+  mkv: "video/x-matroska",
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+  avi: "video/x-msvideo",
+  ts: "video/mp2t",
+};
+
+function normalizeMime(mime: string | null, path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const byExt = EXT_MIME[ext];
+  if (byExt) return byExt;
+  if (!mime || mime === "application/octet-stream") return "video/mp4";
+  if (mime === "video/matroska" || mime === "video/mkv") return "video/x-matroska";
+  return mime;
+}
+
 
 type StreamVideo = {
   id: string;
