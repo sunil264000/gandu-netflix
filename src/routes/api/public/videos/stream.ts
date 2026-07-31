@@ -11,6 +11,9 @@ const MAX_RESPONSE_BYTES = 512 * 1024 * 1024; // steady-state ceiling (~16 parts
 const WINDOW_RAMP = 4; // window multiplier per sequential request
 const FAST_START_ZONE = 16 * 1024 * 1024; // tolerance for "still sequential"
 const PARALLEL_FETCHES = 16; // upstream part reads in flight
+const PREWARM_URL_PARTS = 16; // signed URLs warmed beyond the served window
+const PREWARM_CACHE_PARTS = 3; // whole parts pushed into edge cache ahead of playback
+
 
 const SIGNED_URL_TTL = 60 * 60 * 12;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 11;
