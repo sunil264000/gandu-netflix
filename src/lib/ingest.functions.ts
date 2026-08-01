@@ -60,7 +60,14 @@ const BROWSER_UA =
 
 async function probe(url: string) {
   // HEAD first; many hosts only answer correctly to a 1-byte ranged GET.
-  const head = await fetch(url, { method: "HEAD", headers: { "user-agent": BROWSER_UA } }).catch(() => null);
+  let ref = "";
+  try {
+    ref = new URL(url).origin + "/";
+  } catch {
+    /* ignore */
+  }
+  const baseHeaders: Record<string, string> = { "user-agent": BROWSER_UA, accept: "*/*", ...(ref ? { referer: ref } : {}) };
+  const head = await fetch(url, { method: "HEAD", headers: baseHeaders, redirect: "follow" }).catch(() => null);
   let size = Number(head?.headers.get("content-length") ?? 0);
   let type = head?.headers.get("content-type") ?? null;
   let disp = head?.headers.get("content-disposition") ?? null;
@@ -68,7 +75,8 @@ async function probe(url: string) {
 
   if (!size || !ranges) {
     const probeRes = await fetch(url, {
-      headers: { range: "bytes=0-0", "user-agent": BROWSER_UA },
+      headers: { ...baseHeaders, range: "bytes=0-0" },
+      redirect: "follow",
     });
     const cr = probeRes.headers.get("content-range");
     if (probeRes.status === 206 && cr) {
