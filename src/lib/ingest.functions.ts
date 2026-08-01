@@ -104,14 +104,20 @@ export const startUrlIngest = createServerFn({ method: "POST" })
     const sb = await admin();
 
     const info = await probe(data.url);
-    if (!info.size || info.size < 1024) throw new Error("Could not read the file size from that link");
-    if (!info.ranges) throw new Error("That host does not support resumable range downloads");
+    if (!info.size || info.size < 1024)
+      throw new Error(
+        "Could not read the file size from that link — it may need a login, be an HTML page, or be a temporary link that has expired.",
+      );
+    if (!info.ranges)
+      throw new Error(
+        "That host does not allow resumable (range) downloads, so the import cannot be chunked. Try a direct-download mirror link.",
+      );
 
     const fileName = safeName(nameFromUrl(data.url, info.disp));
     const ext = fileName.split(".").pop()?.toLowerCase() ?? "mp4";
     const title = data.title?.trim() || fileName.replace(/\.[^.]+$/, "");
     const chunkCount = Math.ceil(info.size / CHUNK_SIZE);
-    const storagePath = `ingest/${crypto.randomUUID()}/${fileName}`;
+    const storagePath = `ingest/${crypto.randomUUID()}/${storageSafe(fileName)}`;
 
     const { data: video, error: vErr } = await sb
       .from("videos")
