@@ -42,12 +42,32 @@ function safeName(n: string) {
   return n.replace(/[^\w.\- ()[\]]+/g, "_").slice(0, 180);
 }
 
+// Storage object keys reject spaces and most punctuation ("Invalid key" errors),
+// so the on-disk name is strictly ASCII-safe while the display name stays pretty.
+function storageSafe(n: string) {
+  return (
+    n
+      .normalize("NFKD")
+      .replace(/[^A-Za-z0-9._-]+/g, "_")
+      .replace(/_{2,}/g, "_")
+      .replace(/^[_.]+/, "")
+      .slice(0, 120) || "video.mkv"
+  );
+}
+
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36";
 
 async function probe(url: string) {
   // HEAD first; many hosts only answer correctly to a 1-byte ranged GET.
-  const head = await fetch(url, { method: "HEAD", headers: { "user-agent": BROWSER_UA } }).catch(() => null);
+  let ref = "";
+  try {
+    ref = new URL(url).origin + "/";
+  } catch {
+    /* ignore */
+  }
+  const baseHeaders: Record<string, string> = { "user-agent": BROWSER_UA, accept: "*/*", ...(ref ? { referer: ref } : {}) };
+  const head = await fetch(url, { method: "HEAD", headers: baseHeaders, redirect: "follow" }).catch(() => null);
   let size = Number(head?.headers.get("content-length") ?? 0);
   let type = head?.headers.get("content-type") ?? null;
   let disp = head?.headers.get("content-disposition") ?? null;
@@ -55,7 +75,8 @@ async function probe(url: string) {
 
   if (!size || !ranges) {
     const probeRes = await fetch(url, {
-      headers: { range: "bytes=0-0", "user-agent": BROWSER_UA },
+      headers: { ...baseHeaders, range: "bytes=0-0" },
+      redirect: "follow",
     });
     const cr = probeRes.headers.get("content-range");
     if (probeRes.status === 206 && cr) {
@@ -91,14 +112,20 @@ export const startUrlIngest = createServerFn({ method: "POST" })
     const sb = await admin();
 
     const info = await probe(data.url);
-    if (!info.size || info.size < 1024) throw new Error("Could not read the file size from that link");
-    if (!info.ranges) throw new Error("That host does not support resumable range downloads");
+    if (!info.size || info.size < 1024)
+      throw new Error(
+        "Could not read the file size from that link — it may need a login, be an HTML page, or be a temporary link that has expired.",
+      );
+    if (!info.ranges)
+      throw new Error(
+        "That host does not allow resumable (range) downloads, so the import cannot be chunked. Try a direct-download mirror link.",
+      );
 
     const fileName = safeName(nameFromUrl(data.url, info.disp));
     const ext = fileName.split(".").pop()?.toLowerCase() ?? "mp4";
     const title = data.title?.trim() || fileName.replace(/\.[^.]+$/, "");
     const chunkCount = Math.ceil(info.size / CHUNK_SIZE);
-    const storagePath = `ingest/${crypto.randomUUID()}/${fileName}`;
+    const storagePath = `ingest/${crypto.randomUUID()}/${storageSafe(fileName)}`;
 
     const { data: video, error: vErr } = await sb
       .from("videos")
@@ -146,15 +173,32 @@ export const startUrlIngest = createServerFn({ method: "POST" })
   });
 
 async function fetchPart(url: string, start: number, end: number): Promise<ArrayBuffer> {
+  const want = end - start + 1;
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < FETCH_RETRIES; attempt += 1) {
     try {
+      let origin = "";
+      try {
+        origin = new URL(url).origin + "/";
+      } catch {
+        /* ignore */
+      }
       const res = await fetch(url, {
-        headers: { range: `bytes=${start}-${end}`, "user-agent": BROWSER_UA },
+        headers: {
+          range: `bytes=${start}-${end}`,
+          "user-agent": BROWSER_UA,
+          accept: "*/*",
+          ...(origin ? { referer: origin } : {}),
+        },
+        redirect: "follow",
       });
+      if (res.status === 200 && want < Number(res.headers.get("content-length") ?? 0)) {
+        throw new Error("host ignored the range request");
+      }
       if (res.status !== 206 && res.status !== 200) throw new Error(`source responded ${res.status}`);
       const buf = await res.arrayBuffer();
       if (buf.byteLength === 0) throw new Error("empty part");
+      if (buf.byteLength > want) throw new Error("host returned more data than requested");
       return buf;
     } catch (e) {
       lastErr = e;
@@ -164,6 +208,7 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
   throw new Error(`part ${start}-${end} failed: ${String(lastErr)}`);
 }
 
+
 export const pumpIngest = createServerFn({ method: "POST" })
   .inputValidator((i: { jobId: string }) => z.object({ jobId: z.string().uuid() }).parse(i))
   .handler(async ({ data }) => {
@@ -171,7 +216,7 @@ export const pumpIngest = createServerFn({ method: "POST" })
     const { data: job, error } = await sb.from("ingest_jobs").select("*").eq("id", data.jobId).maybeSingle();
     if (error) throw error;
     if (!job) throw new Error("job_not_found");
-    if (job.status === "done" || job.status === "cancelled") {
+    if (job.status === "done") {
       return { status: job.status as string, chunksDone: job.chunks_done, chunkCount: job.chunk_count };
     }
 
