@@ -718,7 +718,7 @@ export function VideoPlayer({
 
           <span className="text-[11px] sm:text-xs tabular-nums text-white/90 ml-1.5 sm:ml-2 font-mono whitespace-nowrap">{fmt(current)} <span className="text-white/45">/ {fmt(duration)}</span></span>
           {qualityLabel(res.h) && (
-            <span className="ml-2 hidden xs:inline rounded-md border border-white/15 bg-white/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white/80">
+            <span className="ml-2 hidden sm:inline rounded-md border border-white/15 bg-white/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white/80">
               {qualityLabel(res.h)}
             </span>
           )}
