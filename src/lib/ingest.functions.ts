@@ -165,15 +165,32 @@ export const startUrlIngest = createServerFn({ method: "POST" })
   });
 
 async function fetchPart(url: string, start: number, end: number): Promise<ArrayBuffer> {
+  const want = end - start + 1;
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < FETCH_RETRIES; attempt += 1) {
     try {
+      let origin = "";
+      try {
+        origin = new URL(url).origin + "/";
+      } catch {
+        /* ignore */
+      }
       const res = await fetch(url, {
-        headers: { range: `bytes=${start}-${end}`, "user-agent": BROWSER_UA },
+        headers: {
+          range: `bytes=${start}-${end}`,
+          "user-agent": BROWSER_UA,
+          accept: "*/*",
+          ...(origin ? { referer: origin } : {}),
+        },
+        redirect: "follow",
       });
+      if (res.status === 200 && want < Number(res.headers.get("content-length") ?? 0)) {
+        throw new Error("host ignored the range request");
+      }
       if (res.status !== 206 && res.status !== 200) throw new Error(`source responded ${res.status}`);
       const buf = await res.arrayBuffer();
       if (buf.byteLength === 0) throw new Error("empty part");
+      if (buf.byteLength > want) throw new Error("host returned more data than requested");
       return buf;
     } catch (e) {
       lastErr = e;
@@ -182,6 +199,7 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
   }
   throw new Error(`part ${start}-${end} failed: ${String(lastErr)}`);
 }
+
 
 export const pumpIngest = createServerFn({ method: "POST" })
   .inputValidator((i: { jobId: string }) => z.object({ jobId: z.string().uuid() }).parse(i))
