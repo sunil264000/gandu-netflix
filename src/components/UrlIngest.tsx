@@ -128,6 +128,26 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
                     </p>
                   </div>
                   <span className="text-xs tabular-nums text-white/70">{pct.toFixed(1)}%</span>
+                  {(j.status === "error" || j.status === "cancelled") && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          for (;;) {
+                            const r = await _pump({ data: { jobId: j.id } });
+                            qc.invalidateQueries({ queryKey: ["admin:ingest"] });
+                            if (r.status !== "running") break;
+                          }
+                          qc.invalidateQueries({ queryKey: ["admin:videos"] });
+                          onDone();
+                        } catch {
+                          qc.invalidateQueries({ queryKey: ["admin:ingest"] });
+                        }
+                      }}
+                      className="rounded-md border border-white/10 px-2 py-1 text-[11px] font-medium text-white/70 hover:bg-white/10"
+                    >
+                      Resume
+                    </button>
+                  )}
                   <button
                     onClick={async () => {
                       const wipe = j.status !== "done";
@@ -141,6 +161,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
+
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
                   <div
                     className={`h-full rounded-full ${j.status === "error" ? "bg-red-500" : "bg-gradient-to-r from-red-500 to-orange-400"}`}
