@@ -186,6 +186,9 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     // A fresh seek gets a small window so the first frame decodes instantly.
     // Each sequential follow-up multiplies the window (16MB → 64 → 256 → 512),
     // so steady playback ends up pulling hundreds of MB per connection.
+    // Scale the cold-start window with the source size so 8K/high-bitrate
+    // remuxes get enough runway before the ramp kicks in.
+    const startWindow = total >= HUGE_FILE_BYTES ? HUGE_START_RESPONSE_BYTES : START_RESPONSE_BYTES;
     const seqKey = preview ? `${id}:preview` : sid ? `${id}:${sid}` : id;
     const seq = download ? undefined : seqCache.get(seqKey);
     const sequential = !!seq && seq.exp > Date.now() && Math.abs(range.start - seq.nextByte) <= FAST_START_ZONE;
@@ -194,8 +197,8 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       : preview
         ? PREVIEW_RESPONSE_BYTES
         : sequential
-          ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? START_RESPONSE_BYTES) * WINDOW_RAMP)
-          : START_RESPONSE_BYTES;
+          ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? startWindow) * WINDOW_RAMP)
+          : startWindow;
     if (range.end - range.start + 1 > window) {
       range.end = Math.min(range.start + window - 1, total - 1);
     }
