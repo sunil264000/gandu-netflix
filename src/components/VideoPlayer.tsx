@@ -29,6 +29,16 @@ function fmt(t: number) {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function qualityLabel(h: number) {
+  if (!h) return "";
+  if (h >= 4000) return "8K";
+  if (h >= 2000) return "4K";
+  if (h >= 1400) return "1440p";
+  if (h >= 1000) return "1080p";
+  if (h >= 700) return "720p";
+  return `${h}p`;
+}
+
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 const DRIFT_TOLERANCE = 0.25; // seconds of allowed A/V drift before resync
 
@@ -617,13 +627,13 @@ export function VideoPlayer({
 
       {!playing && !loading && (
         <button onClick={togglePlay} className="absolute inset-0 grid place-items-center bg-gradient-to-b from-black/10 via-transparent to-black/30" aria-label="Play">
-          <div className="w-24 h-24 rounded-full bg-red-500 grid place-items-center shadow-2xl shadow-red-500/60 hover:scale-110 active:scale-95 transition-transform">
-            <Play className="w-12 h-12 text-white fill-white ml-1" />
+          <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full bg-red-500 grid place-items-center shadow-2xl shadow-red-500/60 hover:scale-110 active:scale-95 transition-transform">
+            <Play className="w-8 h-8 sm:w-12 sm:h-12 text-white fill-white ml-1" />
           </div>
         </button>
       )}
 
-      <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pt-20 pb-3 transition-all duration-300 ${showControls || menu ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"}`}>
+      <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/70 to-transparent px-3 sm:px-5 pt-24 pb-3 sm:pb-4 transition-all duration-300 ${showControls || menu ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"}`}>
         {/* Progress bar with drag scrubbing + frame preview */}
         <div
           ref={barRef}
@@ -660,12 +670,12 @@ export function VideoPlayer({
           }}
           onPointerLeave={() => { if (!scrubbing) { setHoverPct(null); setPreviewFrame(null); } }}
         >
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-white/20 rounded-full group-hover/bar:h-1.5 transition-all" />
-          <div className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 bg-white/40 rounded-full group-hover/bar:h-1.5 transition-all pointer-events-none" style={{ width: `${bufPct}%` }} />
-          <div className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 bg-red-500 rounded-full group-hover/bar:h-1.5 transition-all pointer-events-none" style={{ width: `${pct}%` }} />
+          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[5px] bg-white/15 rounded-full group-hover/bar:h-[7px] transition-all" />
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 h-[5px] bg-white/35 rounded-full group-hover/bar:h-[7px] transition-all pointer-events-none" style={{ width: `${bufPct}%` }} />
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 h-[5px] bg-gradient-to-r from-red-600 to-red-400 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.55)] group-hover/bar:h-[7px] transition-all pointer-events-none" style={{ width: `${pct}%` }} />
           {hoverPct != null && (
             <>
-              <div className="absolute top-1/2 -translate-y-1/2 h-1 bg-white/30 rounded-full pointer-events-none" style={{ left: 0, width: `${hoverPct}%` }} />
+              <div className="absolute top-1/2 -translate-y-1/2 h-[5px] bg-white/25 rounded-full pointer-events-none" style={{ left: 0, width: `${hoverPct}%` }} />
               {/* Frame preview thumbnail */}
               <div
                 className="absolute -top-[124px] -translate-x-1/2 pointer-events-none flex flex-col items-center gap-1"
@@ -685,31 +695,37 @@ export function VideoPlayer({
               </div>
             </>
           )}
-          <div className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-red-500 shadow-lg shadow-red-500/50 opacity-0 group-hover/bar:opacity-100 transition pointer-events-none" style={{ left: `calc(${pct}% - 7px)` }} />
+          <div className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-white ring-4 ring-red-500/70 shadow-lg transition pointer-events-none ${scrubbing ? "opacity-100 scale-110" : "opacity-0 group-hover/bar:opacity-100"}`} style={{ left: `calc(${pct}% - 8px)` }} />
         </div>
 
 
-        <div className="flex items-center gap-1 text-white" onClick={(e) => e.stopPropagation()}>
-          <button onClick={togglePlay} className="p-2 hover:bg-white/10 rounded-lg transition" aria-label="Play/Pause">
+        <div className="mt-1.5 flex items-center gap-0.5 sm:gap-1 text-white" onClick={(e) => e.stopPropagation()}>
+          <button onClick={togglePlay} className="p-2.5 hover:bg-white/10 active:scale-95 rounded-full transition" aria-label="Play/Pause">
             {playing ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white" />}
           </button>
-          <button onClick={() => seek(-10)} className="p-2 hover:bg-white/10 rounded-lg transition" title="Back 10s (J)"><SkipBack className="w-5 h-5" /></button>
-          <button onClick={() => seek(10)} className="p-2 hover:bg-white/10 rounded-lg transition" title="Forward 10s (L)"><SkipForward className="w-5 h-5" /></button>
+          <button onClick={() => seek(-10)} className="hidden sm:inline-flex p-2.5 hover:bg-white/10 active:scale-95 rounded-full transition" title="Back 10s (J)"><SkipBack className="w-5 h-5" /></button>
+          <button onClick={() => seek(10)} className="hidden sm:inline-flex p-2.5 hover:bg-white/10 active:scale-95 rounded-full transition" title="Forward 10s (L)"><SkipForward className="w-5 h-5" /></button>
 
-          <div className="flex items-center gap-1 ml-1 group/vol">
-            <button onClick={toggleMute} className="p-2 hover:bg-white/10 rounded-lg transition">
+          <div className="flex items-center ml-0.5 group/vol">
+            <button onClick={toggleMute} className="p-2.5 hover:bg-white/10 active:scale-95 rounded-full transition">
               {muted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
             </button>
             <input type="range" min={0} max={1} step={0.01} value={muted ? 0 : volume}
               onChange={(e) => setVol(parseFloat(e.target.value))}
-              className="w-0 group-hover/vol:w-24 transition-all accent-red-500 cursor-pointer" />
+              aria-label="Volume"
+              className="w-0 group-hover/vol:w-24 focus:w-24 transition-all accent-red-500 cursor-pointer" />
           </div>
 
-          <span className="text-xs tabular-nums text-white/90 ml-2 font-mono">{fmt(current)} <span className="text-white/50">/ {fmt(duration)}</span></span>
+          <span className="text-[11px] sm:text-xs tabular-nums text-white/90 ml-1.5 sm:ml-2 font-mono whitespace-nowrap">{fmt(current)} <span className="text-white/45">/ {fmt(duration)}</span></span>
+          {qualityLabel(res.h) && (
+            <span className="ml-2 hidden xs:inline rounded-md border border-white/15 bg-white/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white/80">
+              {qualityLabel(res.h)}
+            </span>
+          )}
 
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-0.5 sm:gap-1">
             <div className="relative">
-              <button onClick={() => setMenu(menu === "rate" ? null : "rate")} className="px-2.5 py-1 hover:bg-white/10 rounded-lg text-xs font-semibold flex items-center gap-1">
+              <button onClick={() => setMenu(menu === "rate" ? null : "rate")} className="px-2.5 py-1.5 hover:bg-white/10 rounded-full text-xs font-semibold flex items-center gap-1 transition">
                 <Gauge className="w-3.5 h-3.5" /> {rate}×
               </button>
               {menu === "rate" && (
@@ -721,7 +737,7 @@ export function VideoPlayer({
               )}
             </div>
             <div className="relative">
-              <button onClick={() => setMenu(menu === "settings" ? null : "settings")} className="p-2 hover:bg-white/10 rounded-lg transition" title="Shortcuts">
+              <button onClick={() => setMenu(menu === "settings" ? null : "settings")} className="p-2.5 hover:bg-white/10 active:scale-95 rounded-full transition" title="Settings">
                 <Settings className="w-5 h-5" />
               </button>
               {menu === "settings" && (
@@ -795,8 +811,8 @@ export function VideoPlayer({
                 </div>
               )}
             </div>
-            <button onClick={pip} className="p-2 hover:bg-white/10 rounded-lg transition" aria-label="Picture in picture" title="Picture-in-picture (I)"><PictureInPicture2 className="w-5 h-5" /></button>
-            <button onClick={toggleFs} className="p-2 hover:bg-white/10 rounded-lg transition" aria-label="Fullscreen" title="Fullscreen (F)">
+            <button onClick={pip} className="hidden sm:inline-flex p-2.5 hover:bg-white/10 active:scale-95 rounded-full transition" aria-label="Picture in picture" title="Picture-in-picture (I)"><PictureInPicture2 className="w-5 h-5" /></button>
+            <button onClick={toggleFs} className="p-2.5 hover:bg-white/10 active:scale-95 rounded-full transition" aria-label="Fullscreen" title="Fullscreen (F)">
               {fs ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
             </button>
           </div>
