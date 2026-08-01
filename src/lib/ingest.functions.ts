@@ -216,7 +216,7 @@ export const pumpIngest = createServerFn({ method: "POST" })
     const { data: job, error } = await sb.from("ingest_jobs").select("*").eq("id", data.jobId).maybeSingle();
     if (error) throw error;
     if (!job) throw new Error("job_not_found");
-    if (job.status === "done" || job.status === "cancelled") {
+    if (job.status === "done") {
       return { status: job.status as string, chunksDone: job.chunks_done, chunkCount: job.chunk_count };
     }
 
