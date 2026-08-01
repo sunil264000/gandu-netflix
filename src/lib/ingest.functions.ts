@@ -42,6 +42,19 @@ function safeName(n: string) {
   return n.replace(/[^\w.\- ()[\]]+/g, "_").slice(0, 180);
 }
 
+// Storage object keys reject spaces and most punctuation ("Invalid key" errors),
+// so the on-disk name is strictly ASCII-safe while the display name stays pretty.
+function storageSafe(n: string) {
+  return (
+    n
+      .normalize("NFKD")
+      .replace(/[^A-Za-z0-9._-]+/g, "_")
+      .replace(/_{2,}/g, "_")
+      .replace(/^[_.]+/, "")
+      .slice(0, 120) || "video.mkv"
+  );
+}
+
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36";
 
