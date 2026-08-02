@@ -40,11 +40,21 @@ export function timeline(scenes: Scene[]): { items: Timed[]; total: number } {
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const easeOut = (x: number) => 1 - Math.pow(1 - clamp01(x), 3);
+const easeInOut = (x: number) => {
+  const t = clamp01(x);
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+};
 const easeBack = (x: number) => {
   const t = clamp01(x);
   const c = 1.7;
   return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
 };
+/** Deterministic pseudo-noise — the same frame must always paint the same pixels. */
+const noise = (a: number, b = 0) => {
+  const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+
 
 // ── grain ────────────────────────────────────────────────────────────────────
 let grain: HTMLCanvasElement | null = null;
