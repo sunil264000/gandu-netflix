@@ -238,7 +238,12 @@ export function VideoPlayer({
       // video decodes fine but zero audio bytes are ever decoded.
       if (!audioSrc && !v.paused && v.currentTime > 4) {
         const decoded = (v as unknown as { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount;
-        if (typeof decoded === "number") setNoAudio(decoded === 0);
+        if (typeof decoded === "number" && decoded === 0) {
+          setNoAudio(true);
+          if (!noAudioFired.current) { noAudioFired.current = true; onNoAudio?.(); }
+        } else if (typeof decoded === "number") {
+          setNoAudio(false);
+        }
       }
 
 
