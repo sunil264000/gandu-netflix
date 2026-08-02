@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Sparkles, Play, Pause, Download, Plus, Trash2, Music, Image as ImageIcon,
-  Loader2, Wand2, GripVertical, RotateCcw, Film,
+  Loader2, Wand2, GripVertical, RotateCcw, Film, Shuffle,
 } from "lucide-react";
 import { Page, PageHeading } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
 import {
-  TEMPLATES, textToScenes, newScene, fitScenesTo, sceneDuration,
-  type Scene, type Template,
+  TEMPLATES, TRANSITIONS, textToScenes, newScene, fitScenesTo, sceneDuration,
+  type Scene, type Template, type TransitionId,
 } from "@/lib/reel/templates";
 import { drawFrame, timeline, W, H, type ReelMedia, type ReelState } from "@/lib/reel/render";
 import { recordReel, downloadBlob, pickMime, webmToMp4 } from "@/lib/reel/export";
@@ -50,6 +50,7 @@ function StudioPage() {
   const [badge, setBadge] = useState("");
   const [showProgress, setShowProgress] = useState(true);
   const [speed, setSpeed] = useState(1);
+  const [bulkTrans, setBulkTrans] = useState<TransitionId>("auto");
 
   const [media, setMedia] = useState<ReelMedia>({ kind: "none" });
   const [mediaName, setMediaName] = useState("");
@@ -306,6 +307,29 @@ function StudioPage() {
   const updateScene = (id: string, patch: Partial<Scene>) =>
     setScenes((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const removeScene = (id: string) => setScenes((s) => s.filter((x) => x.id !== id));
+
+  const applyTransitionToAll = () => {
+    setScenes((s) => s.map((x) => ({ ...x, trans: bulkTrans })));
+    toast.success("Transition applied to every line");
+  };
+
+  // A tasteful random walk: never repeats the same cut twice in a row so the
+  // reel keeps moving without looking like a template demo.
+  const surpriseTransitions = () => {
+    const pool = TRANSITIONS.filter((t) => t.id !== "auto" && t.id !== "cut").map((t) => t.id);
+    let last = "";
+    setScenes((s) =>
+      s.map((x, i) => {
+        if (i === 0) return { ...x, trans: "auto" as TransitionId };
+        let pick = last;
+        while (pick === last) pick = pool[Math.floor(Math.random() * pool.length)]!;
+        last = pick;
+        return { ...x, trans: pick as TransitionId };
+      }),
+    );
+    toast.success("Transitions shuffled");
+  };
+
   const move = (i: number, dir: -1 | 1) =>
     setScenes((s) => {
       const j = i + dir;
@@ -459,6 +483,31 @@ function StudioPage() {
               />
             </div>
 
+            <div className="mt-4">
+              <Label className="text-xs text-muted-foreground">Transition style</Label>
+              <div className="mt-2 flex gap-2">
+                <select
+                  aria-label="Transition for every line"
+                  value={bulkTrans}
+                  onChange={(e) => setBulkTrans(e.target.value as TransitionId)}
+                  className="h-9 flex-1 rounded-md border border-white/10 bg-black/40 px-2 text-sm outline-none focus:border-primary"
+                >
+                  {TRANSITIONS.map((tr) => (
+                    <option key={tr.id} value={tr.id}>
+                      {tr.id === "auto" ? `Auto (${template.transition})` : tr.name}
+                    </option>
+                  ))}
+                </select>
+                <Button size="sm" variant="secondary" className="h-9 gap-2" onClick={applyTransitionToAll}>
+                  <Shuffle className="size-4" /> Apply to all
+                </Button>
+                <Button size="sm" variant="ghost" className="h-9" onClick={surpriseTransitions}>
+                  Mix it up
+                </Button>
+              </div>
+            </div>
+
+
             <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
               {scenes.map((s, i) => (
                 <div key={s.id} className="rounded-xl border border-white/10 bg-black/30 p-2">
@@ -497,6 +546,22 @@ function StudioPage() {
                       auto
                     </Button>
                   </div>
+                  <div className="mt-1 flex items-center gap-2 pl-6">
+                    <Shuffle className="size-3 text-muted-foreground" />
+                    <select
+                      aria-label="Transition into this line"
+                      value={s.trans ?? "auto"}
+                      onChange={(e) => updateScene(s.id, { trans: e.target.value as TransitionId })}
+                      className="h-7 flex-1 rounded-md border border-white/10 bg-black/40 px-2 text-[11px] outline-none focus:border-primary"
+                    >
+                      {TRANSITIONS.map((tr) => (
+                        <option key={tr.id} value={tr.id}>
+                          {tr.id === "auto" ? `Auto (${template.transition})` : tr.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                 </div>
               ))}
             </div>

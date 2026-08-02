@@ -4,7 +4,7 @@
 // file comes from drawFrame(). It is a pure function of (time, state): the same
 // second always paints the same pixels, which is what makes recording reliable.
 
-import type { Scene, Template } from "./templates";
+import type { Scene, Template, TransitionId } from "./templates";
 
 export const W = 1080;
 export const H = 1920;
@@ -218,7 +218,15 @@ function fontString(tpl: Template, size: number) {
   return `${tpl.weight} ${size}px ${tpl.font}`;
 }
 
-function drawCaption(ctx: CanvasRenderingContext2D, s: ReelState, item: Timed, t: number) {
+function drawCaption(
+  ctx: CanvasRenderingContext2D,
+  s: ReelState,
+  item: Timed,
+  t: number,
+  // `plain` skips the built-in fade in/out because a scene transition is
+  // already handling the blend for this frame.
+  opts: { plain?: boolean } = {},
+) {
   const tpl = s.template;
   // Small head start so the very first frame of a scene is already legible
   // rather than a blank fade-in — matters for the paused preview and thumbnails.
@@ -249,7 +257,7 @@ function drawCaption(ctx: CanvasRenderingContext2D, s: ReelState, item: Timed, t
   const perWord = Math.min(0.13, (dur * 0.55) / Math.max(1, total));
   const inFade = clamp01(local / 0.22);
   const outFade = clamp01((item.end - t) / 0.28);
-  const groupAlpha = Math.min(inFade, outFade);
+  const groupAlpha = opts.plain ? 1 : Math.min(inFade, outFade);
 
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
@@ -415,14 +423,206 @@ function drawChrome(ctx: CanvasRenderingContext2D, s: ReelState, t: number, tota
   }
 }
 
+// ── transitions ──────────────────────────────────────────────────────────────
+// Captions are painted onto an offscreen 1080×1920 layer so an outgoing and an
+// incoming line can be composited against each other with a real transition
+// instead of a plain fade. The backdrop stays continuous underneath, which is
+// what keeps the reel feeling like one shot rather than a slideshow.
+
+let layers: [HTMLCanvasElement, HTMLCanvasElement] | null = null;
+function layer(i: 0 | 1) {
+  if (!layers) {
+    const mk = () => {
+      const c = document.createElement("canvas");
+      c.width = W;
+      c.height = H;
+      return c;
+    };
+    layers = [mk(), mk()];
+  }
+  const c = layers[i];
+  const ctx = c.getContext("2d")!;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.clearRect(0, 0, W, H);
+  return { c, ctx };
+}
+
+/** How long the cut between two scenes lasts, capped by the shorter scene. */
+function transDur(kind: TransitionId, a: Timed, b: Timed) {
+  if (kind === "cut") return 0;
+  const base = kind === "flash" || kind === "glitch" ? 0.26 : kind === "whip" || kind === "punch" ? 0.34 : 0.42;
+  return Math.min(base, (a.end - a.start) * 0.5, (b.end - b.start) * 0.5);
+}
+
+function resolve(scene: Scene | undefined, tpl: Template): Exclude<TransitionId, "auto"> {
+  const t = scene?.trans ?? "auto";
+  return t === "auto" ? tpl.transition : t;
+}
+
+type Slot = { canvas: HTMLCanvasElement; p: number; dir: "out" | "in" };
+
+function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, accent: string) {
+  const { canvas, p, dir } = slot;
+  const e = dir === "in" ? easeOut(p) : easeOut(p);
+  ctx.save();
+  switch (kind) {
+    case "fade":
+      ctx.globalAlpha = dir === "in" ? e : 1 - e;
+      ctx.drawImage(canvas, 0, 0);
+      break;
+    case "slideUp": {
+      const off = dir === "in" ? (1 - e) * H * 0.42 : -e * H * 0.42;
+      ctx.globalAlpha = dir === "in" ? Math.min(1, e * 1.6) : 1 - e;
+      ctx.drawImage(canvas, 0, off);
+      break;
+    }
+    case "whip": {
+      const off = dir === "in" ? (1 - e) * W * 0.9 : -e * W * 0.9;
+      // Smear a few ghosts along the travel path for a motion-blur feel.
+      const ghosts = 5;
+      for (let i = 0; i < ghosts; i++) {
+        ctx.globalAlpha = (dir === "in" ? e : 1 - e) * (0.9 / ghosts);
+        ctx.drawImage(canvas, off + (i - ghosts / 2) * 26, 0);
+      }
+      ctx.globalAlpha = dir === "in" ? e : 1 - e;
+      ctx.drawImage(canvas, off, 0);
+      break;
+    }
+    case "punch": {
+      const s = dir === "in" ? 0.82 + easeBack(p) * 0.18 : 1 + e * 0.35;
+      ctx.globalAlpha = dir === "in" ? Math.min(1, p * 2.2) : 1 - e;
+      ctx.translate(W / 2, H / 2);
+      ctx.scale(s, s);
+      ctx.drawImage(canvas, -W / 2, -H / 2);
+      break;
+    }
+    case "flash": {
+      ctx.globalAlpha = dir === "in" ? clamp01((p - 0.45) / 0.55) : 1 - clamp01(p / 0.5);
+      ctx.drawImage(canvas, 0, 0);
+      break;
+    }
+    case "glitch": {
+      const jitter = (1 - e) * 26;
+      ctx.globalAlpha = dir === "in" ? Math.min(1, p * 2) : 1 - e;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.drawImage(canvas, -jitter, Math.sin(p * 40) * 6);
+      ctx.drawImage(canvas, jitter, -Math.sin(p * 33) * 6);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = dir === "in" ? e : 1 - e;
+      ctx.drawImage(canvas, (Math.random() - 0.5) * jitter, 0);
+      break;
+    }
+    case "blinds": {
+      const rows = 9;
+      const rh = H / rows;
+      for (let i = 0; i < rows; i++) {
+        const local = clamp01((p - (i / rows) * 0.35) / 0.65);
+        const k = dir === "in" ? easeOut(local) : 1 - easeOut(local);
+        if (k <= 0) continue;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, i * rh + (rh * (1 - k)) / 2, W, rh * k);
+        ctx.clip();
+        ctx.drawImage(canvas, 0, 0);
+        ctx.restore();
+      }
+      break;
+    }
+    case "clock": {
+      const a0 = -Math.PI / 2;
+      const sweep = (dir === "in" ? e : 1 - e) * Math.PI * 2;
+      if (sweep <= 0.001) break;
+      ctx.beginPath();
+      ctx.moveTo(W / 2, H / 2);
+      ctx.arc(W / 2, H / 2, Math.hypot(W, H), a0, a0 + sweep);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(canvas, 0, 0);
+      break;
+    }
+    case "swipe": {
+      const edge = (dir === "in" ? e : 1 - e) * H;
+      ctx.beginPath();
+      ctx.rect(0, H - edge, W, edge);
+      ctx.clip();
+      ctx.drawImage(canvas, 0, 0);
+      if (dir === "in" && p < 0.9) {
+        ctx.fillStyle = accent;
+        ctx.globalAlpha = 0.9;
+        ctx.fillRect(0, H - edge, W, 14);
+      }
+      break;
+    }
+    default:
+      ctx.drawImage(canvas, 0, 0);
+  }
+  ctx.restore();
+}
+
+/** Full-frame accents that sell the cut (light burst, tape tear, shake). */
+function transitionOverlay(ctx: CanvasRenderingContext2D, kind: TransitionId, p: number, accent: string) {
+  if (kind === "flash") {
+    ctx.save();
+    ctx.globalAlpha = Math.sin(clamp01(p) * Math.PI) * 0.85;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  } else if (kind === "glitch") {
+    ctx.save();
+    for (let i = 0; i < 7; i++) {
+      const y = Math.random() * H;
+      const h = 6 + Math.random() * 26;
+      ctx.globalAlpha = 0.18 + Math.random() * 0.25;
+      ctx.fillStyle = i % 2 ? accent : "#00e5ff";
+      ctx.fillRect(0, y, W, h);
+    }
+    ctx.restore();
+  } else if (kind === "whip") {
+    ctx.save();
+    ctx.globalAlpha = Math.sin(clamp01(p) * Math.PI) * 0.35;
+    const g = ctx.createLinearGradient(0, 0, W, 0);
+    g.addColorStop(0, "transparent");
+    g.addColorStop(0.5, "rgba(255,255,255,0.9)");
+    g.addColorStop(1, "transparent");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+}
+
 /** Paints one full frame at time `t` (seconds). */
 export function drawFrame(ctx: CanvasRenderingContext2D, s: ReelState, t: number) {
   const { items, total } = timeline(s.scenes);
   ctx.save();
   ctx.clearRect(0, 0, W, H);
   drawBackdrop(ctx, s, t);
-  const item = items.find((x) => t >= x.start && t < x.end) ?? (t >= total ? items[items.length - 1] : items[0]);
-  if (item) drawCaption(ctx, s, item, Math.min(t, item.end - 0.001));
+
+  const idx = items.findIndex((x) => t >= x.start && t < x.end);
+  const i = idx >= 0 ? idx : t >= total ? items.length - 1 : 0;
+  const item = items[i];
+
+  if (item) {
+    const prev = i > 0 ? items[i - 1] : undefined;
+    const kind = resolve(item, s.template);
+    const dur = prev ? transDur(kind, prev, item) : 0;
+    const p = dur > 0 ? clamp01((t - item.start) / dur) : 1;
+
+    const inTrans = Boolean(prev) && p < 1;
+    const cur = layer(0);
+    drawCaption(cur.ctx, s, item, Math.min(t, item.end - 0.001), { plain: inTrans });
+
+    if (prev && p < 1) {
+      const old = layer(1);
+      drawCaption(old.ctx, s, prev, prev.end - 0.001, { plain: true });
+      place(ctx, kind, { canvas: old.c, p, dir: "out" }, s.accent);
+      place(ctx, kind, { canvas: cur.c, p, dir: "in" }, s.accent);
+      transitionOverlay(ctx, kind, p, s.accent);
+    } else {
+      ctx.drawImage(cur.c, 0, 0);
+    }
+  }
+
   drawChrome(ctx, s, t, total);
   ctx.restore();
 }
