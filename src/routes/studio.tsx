@@ -79,7 +79,7 @@ function StudioPage() {
   const total = useMemo(() => timeline(scaled).total, [scaled]);
 
   const state = useCallback(
-    (): ReelState => ({
+    (opts: { settled?: boolean } = {}): ReelState => ({
       template,
       scenes: scaled,
       media,
@@ -88,12 +88,17 @@ function StudioPage() {
       accent,
       showProgress,
       level: levelRef.current,
+      settled: opts.settled,
     }),
     [template, scaled, media, handle, badge, accent, showProgress],
   );
 
+
   const paint = useCallback(
-    (t: number) => {
+    // `settled` paints the line fully composed — used while paused/scrubbing so
+    // the editor never shows a half-revealed caption.
+    (t: number, settled = false) => {
+
       const c = canvasRef.current;
       if (!c) return;
       const ctx = c.getContext("2d");
@@ -109,7 +114,7 @@ function StudioPage() {
       } else {
         levelRef.current *= 0.9;
       }
-      drawFrame(ctx, state(), t);
+      drawFrame(ctx, state({ settled }), t);
     },
     [state],
   );
@@ -117,14 +122,15 @@ function StudioPage() {
   // Display fonts must be resident before the canvas measures text, otherwise
   // the first paint falls back to a system face and the layout shifts later.
   useEffect(() => {
-    void document.fonts?.ready.then(() => paint(time));
+    void document.fonts?.ready.then(() => paint(time, true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Repaint whenever the design changes while paused.
   useEffect(() => {
-    if (!playing) paint(time);
+    if (!playing) paint(time, true);
   }, [paint, playing, time]);
+
 
 
   // Playback loop.

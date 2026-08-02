@@ -24,7 +24,13 @@ export type ReelState = {
   showProgress: boolean;
   /** 0..1 loudness from the audio analyser — drives the beat pulse. */
   level: number;
+  /**
+   * Editor preview while paused: show each line fully composed instead of
+   * frozen halfway through its reveal.
+   */
+  settled?: boolean;
 };
+
 
 export type Timed = Scene & { start: number; end: number };
 
@@ -40,11 +46,21 @@ export function timeline(scenes: Scene[]): { items: Timed[]; total: number } {
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const easeOut = (x: number) => 1 - Math.pow(1 - clamp01(x), 3);
+const easeInOut = (x: number) => {
+  const t = clamp01(x);
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+};
 const easeBack = (x: number) => {
   const t = clamp01(x);
   const c = 1.7;
   return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
 };
+/** Deterministic pseudo-noise — the same frame must always paint the same pixels. */
+const noise = (a: number, b = 0) => {
+  const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+
 
 // ── grain ────────────────────────────────────────────────────────────────────
 let grain: HTMLCanvasElement | null = null;
@@ -223,14 +239,23 @@ function drawCaption(
   s: ReelState,
   item: Timed,
   t: number,
-  // `plain` skips the built-in fade in/out because a scene transition is
-  // already handling the blend for this frame.
-  opts: { plain?: boolean } = {},
+  opts: {
+    // `plain` skips the built-in fade in/out because a scene transition is
+    // already handling the blend for this frame.
+    plain?: boolean;
+    // Length of the incoming transition. The word-by-word reveal is warped to
+    // finish exactly when the cut lands, so the transition always carries a
+    // fully composed line instead of an empty layer.
+    transIn?: number;
+    // The next scene cuts with a real transition, so don't fade this one out —
+    // the transition owns the blend.
+    holdOut?: boolean;
+  } = {},
 ) {
   const tpl = s.template;
   // Small head start so the very first frame of a scene is already legible
   // rather than a blank fade-in — matters for the paused preview and thumbnails.
-  const local = t - item.start + 0.07;
+  let local = t - item.start + 0.07;
 
   const dur = item.end - item.start;
   const text = tpl.uppercase ? item.text.toUpperCase() : item.text;
@@ -255,9 +280,22 @@ function drawCaption(
 
   const total = lines.reduce((n, l) => n + l.words.length, 0);
   const perWord = Math.min(0.13, (dur * 0.55) / Math.max(1, total));
+
+  // Warp the reveal clock into the transition window (monotonic, so nothing
+  // ever pops back out once it has appeared).
+  const tIn = opts.transIn ?? 0;
+  if (tIn > 0.01) {
+    const span = perWord * Math.max(0, total - 1) + 0.34;
+    const raw = t - item.start;
+    local = raw < tIn ? (raw / tIn) * span + 0.07 : span + (raw - tIn) + 0.07;
+  }
+
+  const settled = !!s.settled;
   const inFade = clamp01(local / 0.22);
-  const outFade = clamp01((item.end - t) / 0.28);
-  const groupAlpha = opts.plain ? 1 : Math.min(inFade, outFade);
+  const outFade = opts.holdOut ? 1 : clamp01((item.end - t) / 0.28);
+  const groupAlpha = settled || opts.plain ? 1 : Math.min(inFade, outFade);
+
+
 
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
@@ -290,8 +328,9 @@ function drawCaption(
 
     for (const word of line.words) {
       const appear = word.i * perWord;
-      const p = clamp01((local - appear) / 0.34);
+      const p = settled ? 1 : clamp01((local - appear) / 0.34);
       if (p <= 0 && tpl.anim !== "karaoke" && tpl.anim !== "type") continue;
+
 
       let alpha = groupAlpha;
       let dx = 0;
@@ -304,10 +343,11 @@ function drawCaption(
         alpha *= easeOut(p * 1.6);
         if (word.i === activeWord) color = s.accent;
       } else if (tpl.anim === "karaoke") {
-        const done = word.i <= activeWord;
+        const done = settled || word.i <= activeWord;
         alpha *= done ? 1 : 0.42;
-        color = done && word.i === activeWord ? s.accent : tpl.palette.text;
-        scale = word.i === activeWord ? 1.06 + s.level * 0.05 : 1;
+        color = !settled && done && word.i === activeWord ? s.accent : tpl.palette.text;
+        scale = !settled && word.i === activeWord ? 1.06 + s.level * 0.05 : 1;
+
       } else if (tpl.anim === "slideUp") {
         dy = (1 - easeOut(p)) * lineH * 0.55;
         alpha *= easeOut(p);
@@ -331,7 +371,8 @@ function drawCaption(
 
       if (tpl.anim === "type") {
         // Reveal character by character across the whole block.
-        const chars = Math.floor(clamp01(local / (dur * 0.7)) * countChars(lines));
+        const chars = settled ? countChars(lines) : Math.floor(clamp01(local / (dur * 0.7)) * countChars(lines));
+
         const before = charsBefore(lines, word.i);
         const visible = Math.max(0, Math.min(word.text.length, chars - before));
         if (visible <= 0) {
@@ -464,7 +505,7 @@ type Slot = { canvas: HTMLCanvasElement; p: number; dir: "out" | "in" };
 
 function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, accent: string) {
   const { canvas, p, dir } = slot;
-  const e = dir === "in" ? easeOut(p) : easeOut(p);
+  const e = easeInOut(p);
   ctx.save();
   switch (kind) {
     case "fade":
@@ -479,13 +520,15 @@ function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, ac
     }
     case "whip": {
       const off = dir === "in" ? (1 - e) * W * 0.9 : -e * W * 0.9;
-      // Smear a few ghosts along the travel path for a motion-blur feel.
-      const ghosts = 5;
-      for (let i = 0; i < ghosts; i++) {
-        ctx.globalAlpha = (dir === "in" ? e : 1 - e) * (0.9 / ghosts);
-        ctx.drawImage(canvas, off + (i - ghosts / 2) * 26, 0);
+      // Smear a few ghosts along the travel path for a motion-blur feel. The
+      // smear thins out as the move settles so the final frame stays crisp.
+      const travel = dir === "in" ? 1 - e : e;
+      const ghosts = 6;
+      for (let i = 1; i <= ghosts; i++) {
+        ctx.globalAlpha = 0.16 * travel;
+        ctx.drawImage(canvas, off + (dir === "in" ? 1 : -1) * i * 30 * travel, 0);
       }
-      ctx.globalAlpha = dir === "in" ? e : 1 - e;
+      ctx.globalAlpha = dir === "in" ? Math.min(1, e * 1.5) : 1 - e;
       ctx.drawImage(canvas, off, 0);
       break;
     }
@@ -504,22 +547,25 @@ function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, ac
     }
     case "glitch": {
       const jitter = (1 - e) * 26;
-      ctx.globalAlpha = dir === "in" ? Math.min(1, p * 2) : 1 - e;
+      ctx.globalAlpha = (dir === "in" ? Math.min(1, p * 2) : 1 - e) * 0.55;
       ctx.globalCompositeOperation = "lighter";
       ctx.drawImage(canvas, -jitter, Math.sin(p * 40) * 6);
       ctx.drawImage(canvas, jitter, -Math.sin(p * 33) * 6);
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = dir === "in" ? e : 1 - e;
-      ctx.drawImage(canvas, (Math.random() - 0.5) * jitter, 0);
+      ctx.drawImage(canvas, (noise(p, dir === "in" ? 1 : 2) - 0.5) * jitter, 0);
       break;
     }
     case "blinds": {
       const rows = 9;
       const rh = H / rows;
       for (let i = 0; i < rows; i++) {
-        const local = clamp01((p - (i / rows) * 0.35) / 0.65);
+        // Outgoing rows leave in the opposite order so the two never sit in
+        // exactly the same band at the same time.
+        const stagger = dir === "in" ? i / rows : (rows - 1 - i) / rows;
+        const local = clamp01((p - stagger * 0.35) / 0.65);
         const k = dir === "in" ? easeOut(local) : 1 - easeOut(local);
-        if (k <= 0) continue;
+        if (k <= 0.001) continue;
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, i * rh + (rh * (1 - k)) / 2, W, rh * k);
@@ -531,23 +577,33 @@ function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, ac
     }
     case "clock": {
       const a0 = -Math.PI / 2;
-      const sweep = (dir === "in" ? e : 1 - e) * Math.PI * 2;
-      if (sweep <= 0.001) break;
+      const sweep = e * Math.PI * 2;
+      const R = Math.hypot(W, H);
+      // The incoming layer owns the swept wedge; the outgoing keeps the rest.
+      const from = dir === "in" ? a0 : a0 + sweep;
+      const to = dir === "in" ? a0 + sweep : a0 + Math.PI * 2;
+      if (to - from <= 0.001) break;
       ctx.beginPath();
       ctx.moveTo(W / 2, H / 2);
-      ctx.arc(W / 2, H / 2, Math.hypot(W, H), a0, a0 + sweep);
+      ctx.arc(W / 2, H / 2, R, from, to);
       ctx.closePath();
       ctx.clip();
       ctx.drawImage(canvas, 0, 0);
       break;
     }
     case "swipe": {
-      const edge = (dir === "in" ? e : 1 - e) * H;
-      ctx.beginPath();
-      ctx.rect(0, H - edge, W, edge);
+      const edge = e * H;
+      // Incoming fills from the bottom edge up, outgoing keeps what's left.
+      if (dir === "in") {
+        ctx.beginPath();
+        ctx.rect(0, H - edge, W, edge);
+      } else {
+        ctx.beginPath();
+        ctx.rect(0, 0, W, H - edge);
+      }
       ctx.clip();
       ctx.drawImage(canvas, 0, 0);
-      if (dir === "in" && p < 0.9) {
+      if (dir === "in" && p < 0.98) {
         ctx.fillStyle = accent;
         ctx.globalAlpha = 0.9;
         ctx.fillRect(0, H - edge, W, 14);
@@ -560,6 +616,7 @@ function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, ac
   ctx.restore();
 }
 
+
 /** Full-frame accents that sell the cut (light burst, tape tear, shake). */
 function transitionOverlay(ctx: CanvasRenderingContext2D, kind: TransitionId, p: number, accent: string) {
   if (kind === "flash") {
@@ -570,14 +627,16 @@ function transitionOverlay(ctx: CanvasRenderingContext2D, kind: TransitionId, p:
     ctx.restore();
   } else if (kind === "glitch") {
     ctx.save();
+    const q = Math.round(clamp01(p) * 24); // quantised so tears hold for a frame or two
     for (let i = 0; i < 7; i++) {
-      const y = Math.random() * H;
-      const h = 6 + Math.random() * 26;
-      ctx.globalAlpha = 0.18 + Math.random() * 0.25;
+      const y = noise(q, i) * H;
+      const h = 6 + noise(q, i + 40) * 26;
+      ctx.globalAlpha = (0.18 + noise(q, i + 80) * 0.25) * Math.sin(clamp01(p) * Math.PI);
       ctx.fillStyle = i % 2 ? accent : "#00e5ff";
       ctx.fillRect(0, y, W, h);
     }
     ctx.restore();
+
   } else if (kind === "whip") {
     ctx.save();
     ctx.globalAlpha = Math.sin(clamp01(p) * Math.PI) * 0.35;
@@ -605,21 +664,43 @@ export function drawFrame(ctx: CanvasRenderingContext2D, s: ReelState, t: number
   if (item) {
     const prev = i > 0 ? items[i - 1] : undefined;
     const kind = resolve(item, s.template);
-    const dur = prev ? transDur(kind, prev, item) : 0;
+    const dur = prev && !s.settled ? transDur(kind, prev, item) : 0;
     const p = dur > 0 ? clamp01((t - item.start) / dur) : 1;
+
+
+    // If the following scene cuts with a real transition, this caption must not
+    // fade itself out first — otherwise the cut blends two ghosts.
+    const next = items[i + 1];
+    const nextDur = next ? transDur(resolve(next, s.template), item, next) : 0;
 
     const inTrans = Boolean(prev) && p < 1;
     const cur = layer(0);
-    drawCaption(cur.ctx, s, item, Math.min(t, item.end - 0.001), { plain: inTrans });
+    drawCaption(cur.ctx, s, item, Math.min(t, item.end - 0.001), {
+      plain: inTrans,
+      transIn: dur,
+      holdOut: nextDur > 0.01,
+    });
 
     if (prev && p < 1) {
       const old = layer(1);
-      drawCaption(old.ctx, s, prev, prev.end - 0.001, { plain: true });
+      const prevPrev = i > 1 ? items[i - 2] : undefined;
+      const prevDur = prevPrev ? transDur(resolve(prev, s.template), prevPrev, prev) : 0;
+      drawCaption(old.ctx, s, prev, prev.end - 0.001, { plain: true, transIn: prevDur, holdOut: true });
+
+      // A short kick on the punchier cuts, applied to both layers so they move
+      // together as one camera rather than two sliding cards.
+      const kick = (kind === "punch" || kind === "whip" || kind === "glitch") ? Math.sin(p * Math.PI) : 0;
+      ctx.save();
+      if (kick > 0) {
+        ctx.translate((noise(Math.round(p * 30), 3) - 0.5) * 18 * kick, (noise(Math.round(p * 30), 7) - 0.5) * 14 * kick);
+      }
       place(ctx, kind, { canvas: old.c, p, dir: "out" }, s.accent);
       place(ctx, kind, { canvas: cur.c, p, dir: "in" }, s.accent);
+      ctx.restore();
       transitionOverlay(ctx, kind, p, s.accent);
     } else {
       ctx.drawImage(cur.c, 0, 0);
+
     }
   }
 
