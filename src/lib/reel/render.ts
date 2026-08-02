@@ -656,18 +656,39 @@ export function drawFrame(ctx: CanvasRenderingContext2D, s: ReelState, t: number
     const dur = prev ? transDur(kind, prev, item) : 0;
     const p = dur > 0 ? clamp01((t - item.start) / dur) : 1;
 
+    // If the following scene cuts with a real transition, this caption must not
+    // fade itself out first — otherwise the cut blends two ghosts.
+    const next = items[i + 1];
+    const nextDur = next ? transDur(resolve(next, s.template), item, next) : 0;
+
     const inTrans = Boolean(prev) && p < 1;
     const cur = layer(0);
-    drawCaption(cur.ctx, s, item, Math.min(t, item.end - 0.001), { plain: inTrans });
+    drawCaption(cur.ctx, s, item, Math.min(t, item.end - 0.001), {
+      plain: inTrans,
+      transIn: dur,
+      holdOut: nextDur > 0.01,
+    });
 
     if (prev && p < 1) {
       const old = layer(1);
-      drawCaption(old.ctx, s, prev, prev.end - 0.001, { plain: true });
+      const prevPrev = i > 1 ? items[i - 2] : undefined;
+      const prevDur = prevPrev ? transDur(resolve(prev, s.template), prevPrev, prev) : 0;
+      drawCaption(old.ctx, s, prev, prev.end - 0.001, { plain: true, transIn: prevDur, holdOut: true });
+
+      // A short kick on the punchier cuts, applied to both layers so they move
+      // together as one camera rather than two sliding cards.
+      const kick = (kind === "punch" || kind === "whip" || kind === "glitch") ? Math.sin(p * Math.PI) : 0;
+      ctx.save();
+      if (kick > 0) {
+        ctx.translate((noise(Math.round(p * 30), 3) - 0.5) * 18 * kick, (noise(Math.round(p * 30), 7) - 0.5) * 14 * kick);
+      }
       place(ctx, kind, { canvas: old.c, p, dir: "out" }, s.accent);
       place(ctx, kind, { canvas: cur.c, p, dir: "in" }, s.accent);
+      ctx.restore();
       transitionOverlay(ctx, kind, p, s.accent);
     } else {
       ctx.drawImage(cur.c, 0, 0);
+
     }
   }
 
