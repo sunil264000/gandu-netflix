@@ -102,7 +102,7 @@ function Home() {
         <>
           {hero ? <Hero v={hero} /> : null}
           <VideoRow title="Continue Watching" videos={continueW.data ?? []} />
-          <VideoRow title="Recently Added" videos={(recent.data ?? []).slice(1)} />
+          <VideoRow title="Recently Added" videos={recent.data ?? []} />
           <VideoRow title="Most Watched" videos={popular.data ?? []} />
           <VideoRow title="Favorites" videos={favs.data ?? []} />
         </>
