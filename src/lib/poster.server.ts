@@ -182,33 +182,33 @@ async function j(url: string, timeoutMs = 7000): Promise<any | null> {
  * Pulls the full backdrop gallery and picks the highest-rated true 16:9 still
  * at original resolution, so cards never get a cropped portrait poster.
  */
-async function tmdbLookup(p: ParsedTitle): Promise<Candidate | null> {
+async function tmdbLookup(p: ParsedTitle): Promise<Candidate[]> {
   const key = process.env["TMDB_API_KEY"];
-  if (!key) return null;
+  if (!key) return [];
   const q = encodeURIComponent(p.title);
   const yr = p.year ? `&year=${p.year}` : "";
   const data = await j(`https://api.themoviedb.org/3/search/multi?api_key=${key}&query=${q}${yr}&include_adult=false`);
   const hit = (data?.results ?? []).find((r: any) => r.poster_path || r.backdrop_path);
-  if (!hit) return null;
+  if (!hit) return [];
 
   const kind = hit.media_type === "tv" || hit.first_air_date ? "tv" : "movie";
   const images = await j(
     `https://api.themoviedb.org/3/${kind}/${hit.id}/images?api_key=${key}&include_image_language=en,null`,
   );
-  const wide: any[] = (images?.backdrops ?? []).filter(
-    (b: any) => typeof b.aspect_ratio === "number" && b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85,
-  );
-  if (wide.length) {
-    wide.sort(
-      (a, b) => b.vote_average - a.vote_average || b.width - a.width,
-    );
-    return { url: `https://image.tmdb.org/t/p/original${wide[0].file_path}`, source: "tmdb:backdrop", score: 5 };
-  }
+  const wide: any[] = (images?.backdrops ?? [])
+    .filter((b: any) => typeof b.aspect_ratio === "number" && b.aspect_ratio >= 1.7 && b.width >= 1280)
+    .sort((a: any, b: any) => b.width - a.width || b.vote_average - a.vote_average);
+
+  const out: Candidate[] = wide
+    .slice(0, 5)
+    .map((b) => ({ url: `https://image.tmdb.org/t/p/original${b.file_path}`, source: "tmdb:backdrop", score: 5 }));
   if (hit.backdrop_path) {
-    return { url: `https://image.tmdb.org/t/p/original${hit.backdrop_path}`, source: "tmdb:backdrop", score: 4 };
+    out.push({ url: `https://image.tmdb.org/t/p/original${hit.backdrop_path}`, source: "tmdb:backdrop", score: 4 });
   }
-  return { url: `https://image.tmdb.org/t/p/w780${hit.poster_path}`, source: "tmdb:poster", score: 2 };
+  // Portrait posters are deliberately not offered — cards are 16:9 only.
+  return out;
 }
+
 
 
 const SCRAPE_HEADERS = {
