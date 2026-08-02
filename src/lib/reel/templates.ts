@@ -223,7 +223,7 @@ export const TEMPLATES: Template[] = [
   },
 ];
 
-export type Scene = { id: string; text: string; dur: number };
+export type Scene = { id: string; text: string; dur: number; trans?: TransitionId };
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -247,7 +247,7 @@ export function textToScenes(raw: string): Scene[] {
   const out: Scene[] = [];
   for (const block of blocks) {
     const chunks = block.length <= 90 ? [block] : splitLong(block);
-    for (const c of chunks) out.push({ id: uid(), text: c, dur: sceneDuration(c) });
+    for (const c of chunks) out.push({ id: uid(), text: c, dur: sceneDuration(c), trans: "auto" });
   }
   return out.length ? out : [];
 }
@@ -277,7 +277,7 @@ function chopWords(c: string): string[] {
   return out;
 }
 
-export const newScene = (text = "New line"): Scene => ({ id: uid(), text, dur: sceneDuration(text) });
+export const newScene = (text = "New line"): Scene => ({ id: uid(), text, dur: sceneDuration(text), trans: "auto" });
 
 /** Rescales every scene so the reel lands exactly on `target` seconds. */
 export function fitScenesTo(scenes: Scene[], target: number): Scene[] {
