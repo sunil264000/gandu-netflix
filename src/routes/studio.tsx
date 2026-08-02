@@ -307,6 +307,29 @@ function StudioPage() {
   const updateScene = (id: string, patch: Partial<Scene>) =>
     setScenes((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const removeScene = (id: string) => setScenes((s) => s.filter((x) => x.id !== id));
+
+  const applyTransitionToAll = () => {
+    setScenes((s) => s.map((x) => ({ ...x, trans: bulkTrans })));
+    toast.success("Transition applied to every line");
+  };
+
+  // A tasteful random walk: never repeats the same cut twice in a row so the
+  // reel keeps moving without looking like a template demo.
+  const surpriseTransitions = () => {
+    const pool = TRANSITIONS.filter((t) => t.id !== "auto" && t.id !== "cut").map((t) => t.id);
+    let last = "";
+    setScenes((s) =>
+      s.map((x, i) => {
+        if (i === 0) return { ...x, trans: "auto" as TransitionId };
+        let pick = last;
+        while (pick === last) pick = pool[Math.floor(Math.random() * pool.length)]!;
+        last = pick;
+        return { ...x, trans: pick as TransitionId };
+      }),
+    );
+    toast.success("Transitions shuffled");
+  };
+
   const move = (i: number, dir: -1 | 1) =>
     setScenes((s) => {
       const j = i + dir;
