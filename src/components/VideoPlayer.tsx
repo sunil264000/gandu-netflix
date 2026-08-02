@@ -582,7 +582,7 @@ export function VideoPlayer({
         src={playSrc}
         poster={poster ?? undefined}
         className={`w-full h-full touch-manipulation ${fit === "cover" ? "object-cover" : "object-contain"}`}
-        style={{ imageRendering: "auto" }}
+        style={{ imageRendering: "auto", filter: hdrFilter, ...({ dynamicRange: "high" } as Record<string, string>) }}
         autoPlay={autoPlay}
         playsInline
         preload="auto"
