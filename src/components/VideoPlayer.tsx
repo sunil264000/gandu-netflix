@@ -832,6 +832,25 @@ export function VideoPlayer({
                     <span className="text-right font-mono text-red-400">Original (no re-encode)</span>
                   </div>
 
+                  <button
+                    onClick={() => {
+                      setHdr((h) => {
+                        const next = !h;
+                        try { localStorage.setItem("vault:hdr", next ? "on" : "off"); } catch { /* ignore */ }
+                        flashToast(next ? "Auto HDR on" : "Auto HDR off");
+                        return next;
+                      });
+                    }}
+                    className={`w-full mb-3 px-2 py-1.5 rounded-md text-left text-[11px] font-medium transition ${hdr ? "bg-red-600/80 text-white" : "bg-white/10 hover:bg-white/20 text-white/85"}`}
+                  >
+                    Auto HDR {hdr ? "on" : "off"}
+                    <span className="block text-[9px] font-normal opacity-70">
+                      {hdrDisplay ? "HDR display detected" : "Tone-expanded for SDR display"}
+                    </span>
+                  </button>
+
+
+
                   <div className="text-white font-semibold mb-2 text-xs">Audio track</div>
                   {audioSrc ? (
                     <div className="mb-3 space-y-1">
