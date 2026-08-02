@@ -140,9 +140,11 @@ function Watch() {
 
   const onEnded = useCallback(() => {
     if (!autoplay || !vid) return;
-    const next = (related.data ?? []).find((v) => v.id !== vid.id);
+    // Inside a series, always roll into the next episode before anything else.
+    const next = nextEpisode?.v ?? (related.data ?? []).find((v) => v.id !== vid.id);
     if (next) setTimeout(() => nav({ to: "/watch/$slug", params: { slug: next.slug ?? next.id } }), 1200);
-  }, [related.data, vid, nav, autoplay]);
+  }, [related.data, vid, nav, autoplay, nextEpisode]);
+
 
   const doToggleFav = async () => {
     if (!vid) return;
