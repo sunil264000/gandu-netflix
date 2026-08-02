@@ -261,8 +261,8 @@ async function tmdbScrapeLookup(p: ParsedTitle): Promise<Candidate[]> {
     const detail = await html(`https://www.themoviedb.org${base}`);
     if (detail) {
       const wide =
-        detail.match(/\/t\/p\/w\d+_and_h\d+(?:_multi_faces|_face|_bestv2)?\/([A-Za-z0-9]+\.(?:jpg|png))"?[^>]*class="[^"]*backdrop/)?.[1] ??
-        detail.match(/image\.tmdb\.org\/t\/p\/w1920_and_h800_multi_faces\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
+        detail.match(/\/t\/p\/w\d+_and_h\d+(?:_multi_faces|_face|_bestv2)?\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1] ??
+        detail.match(/image\.tmdb\.org\/t\/p\/original\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
       if (wide) out.push({ url: `https://image.tmdb.org/t/p/original/${wide}`, source: "tmdb:backdrop", score: 4 });
     }
     if (out.length) break;
