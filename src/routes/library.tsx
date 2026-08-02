@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { Page, PageHeading } from "@/components/PageShell";
-import { VideoCard, VideoGridSkeleton, gridCls } from "@/components/VideoCard";
+import { VideoGrid, VideoGridSkeleton } from "@/components/VideoCard";
 import { listVideos, listCategories } from "@/lib/videos.functions";
 
 export const Route = createFileRoute("/library")({
@@ -79,12 +79,9 @@ function Library() {
           <p className="mt-1 text-sm text-white/40">Try a different category or upload something new.</p>
         </div>
       ) : (
-        <div className={gridCls}>
-          {(list.data ?? []).map((v, i) => (
-            <VideoCard key={v.id} v={v} index={i} />
-          ))}
-        </div>
+        <VideoGrid videos={list.data ?? []} />
       )}
+
     </Page>
   );
 }

@@ -2,14 +2,16 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Heart, ArrowLeft, Play, Share2, Clock, Info, Headphones, ExternalLink, Copy } from "lucide-react";
+import { Heart, ArrowLeft, Play, Share2, Clock, Info, Headphones, ExternalLink, Copy, Layers } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { TurboDownload } from "@/components/TurboDownload";
 import { extractCompatibleAudioFromServer, serverRescueSupported, type TranscodeProgress } from "@/lib/audioTranscode";
 import { uploadAny } from "@/lib/storageUpload";
 
-import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite, attachAudioTrack } from "@/lib/videos.functions";
+import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite, attachAudioTrack, searchVideos } from "@/lib/videos.functions";
+import { parseEpisode, normalizeKey, compareEpisodes, type EpisodeInfo } from "@/lib/series";
+
 
 
 export const Route = createFileRoute("/watch/$slug")({
@@ -88,6 +90,8 @@ function Watch() {
   const _progress = useServerFn(saveProgress);
   const _bump = useServerFn(bumpView);
   const _related = useServerFn(listVideos);
+  const _search = useServerFn(searchVideos);
+
   const _isFav = useServerFn(isFavorite);
   const _toggleFav = useServerFn(toggleFavorite);
   const _attachAudio = useServerFn(attachAudioTrack);
@@ -108,6 +112,24 @@ function Watch() {
 
   const vid = video.data;
 
+  // ---- Series / episode list -----------------------------------------------
+  const thisEp = vid ? parseEpisode(vid.title) : null;
+  const seriesQ = useQuery({
+    queryKey: ["series", thisEp?.key ?? null],
+    queryFn: () => _search({ data: { q: thisEp!.series } }),
+    enabled: !!thisEp,
+  });
+  type SeriesRow = NonNullable<typeof seriesQ.data>[number];
+  const episodes = (seriesQ.data ?? [])
+    .map((v: SeriesRow) => ({ v, ep: parseEpisode(v.title) }))
+    .filter((x): x is { v: SeriesRow; ep: EpisodeInfo } =>
+      !!x.ep && normalizeKey(x.ep.series) === (thisEp?.key ?? ""))
+    .sort((a, b) => compareEpisodes(a.ep, b.ep));
+
+  const currentIdx = episodes.findIndex((e) => e.v.id === vid?.id);
+  const nextEpisode = currentIdx >= 0 ? episodes[currentIdx + 1] : undefined;
+
+
   useEffect(() => { if (vid) _isFav({ data: { videoId: vid.id } }).then((r) => setFav(r.favorited)); }, [_isFav, vid]);
   useEffect(() => { if (vid) _bump({ data: { videoId: vid.id } }).catch(() => {}); }, [vid, _bump]);
 
@@ -118,9 +140,11 @@ function Watch() {
 
   const onEnded = useCallback(() => {
     if (!autoplay || !vid) return;
-    const next = (related.data ?? []).find((v) => v.id !== vid.id);
+    // Inside a series, always roll into the next episode before anything else.
+    const next = nextEpisode?.v ?? (related.data ?? []).find((v) => v.id !== vid.id);
     if (next) setTimeout(() => nav({ to: "/watch/$slug", params: { slug: next.slug ?? next.id } }), 1200);
-  }, [related.data, vid, nav, autoplay]);
+  }, [related.data, vid, nav, autoplay, nextEpisode]);
+
 
   const doToggleFav = async () => {
     if (!vid) return;
@@ -166,7 +190,9 @@ function Watch() {
   }, [vid, _attachAudio, video]);
 
 
-  const upNext = (related.data ?? []).filter((v) => vid && v.id !== vid.id);
+  const episodeIds = new Set(episodes.map((e) => e.v.id));
+  const upNext = (related.data ?? []).filter((v) => vid && v.id !== vid.id && !episodeIds.has(v.id));
+
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30">
@@ -260,9 +286,22 @@ function Watch() {
 
               <div className="space-y-4 sm:space-y-6">
                 <div className="flex flex-col gap-3">
+                  {thisEp && episodes.length > 1 ? (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-red-400">
+                      <Layers className="h-3.5 w-3.5" />
+                      <span>{thisEp.series}</span>
+                      <span className="rounded-md bg-red-500/15 px-1.5 py-0.5 tracking-normal text-red-300">
+                        {thisEp.label}
+                      </span>
+                      <span className="text-zinc-500">
+                        {currentIdx + 1} of {episodes.length}
+                      </span>
+                    </div>
+                  ) : null}
                   <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight leading-tight text-white break-words">
-                    {vid.title}
+                    {thisEp && episodes.length > 1 ? `${thisEp.label} — ${thisEp.series}` : vid.title}
                   </h1>
+
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs sm:text-sm font-medium text-zinc-400">
                     <span>{vid.view_count} view{vid.view_count === 1 ? "" : "s"}</span>
                     <span className="w-1 h-1 rounded-full bg-zinc-700" />
@@ -318,6 +357,48 @@ function Watch() {
             </div>
 
             <aside className="col-span-12 lg:col-span-4 space-y-5 sm:space-y-6">
+              {thisEp && episodes.length > 1 ? (
+                <section className="rounded-2xl border border-white/10 bg-zinc-900/50 p-3 sm:p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h2 className="text-xs font-black uppercase tracking-[0.25em] text-zinc-400">Episodes</h2>
+                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-zinc-400">
+                      {episodes.length}
+                    </span>
+                  </div>
+                  <ol className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
+                    {episodes.map((e) => {
+                      const active = e.v.id === vid.id;
+                      return (
+                        <li key={e.v.id}>
+                          <Link
+                            to="/watch/$slug"
+                            params={{ slug: e.v.slug ?? e.v.id }}
+                            className={`flex items-center gap-3 rounded-xl px-2.5 py-2 transition-colors ${
+                              active ? "bg-red-500/15 ring-1 ring-red-500/40" : "hover:bg-white/5"
+                            }`}
+                          >
+                            <span
+                              className={`w-12 shrink-0 rounded-md px-1 py-0.5 text-center text-[10px] font-bold tabular-nums ${
+                                active ? "bg-red-500 text-white" : "bg-white/10 text-zinc-300"
+                              }`}
+                            >
+                              {e.ep.label}
+                            </span>
+                            <span className={`min-w-0 flex-1 truncate text-[12.5px] font-medium ${active ? "text-white" : "text-zinc-300"}`}>
+                              {e.v.title}
+                            </span>
+                            {e.v.duration_sec ? (
+                              <span className="shrink-0 text-[10px] tabular-nums text-zinc-500">{fmtDur(e.v.duration_sec)}</span>
+                            ) : null}
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </section>
+              ) : null}
+
+
               <div className="flex items-center justify-between">
                 <h2 className="text-xs font-black uppercase tracking-[0.25em] text-zinc-500">Up Next</h2>
                 <button

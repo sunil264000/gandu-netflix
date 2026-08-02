@@ -66,9 +66,10 @@ function Home() {
   const _continue = useServerFn(listContinueWatching);
   const _favorites = useServerFn(listFavorites);
 
-  const recent = useQuery({ queryKey: ["home:recent"], queryFn: () => _listVideos({ data: { sort: "new", limit: 12 } }) });
+  const recent = useQuery({ queryKey: ["home:recent"], queryFn: () => _listVideos({ data: { sort: "new", limit: 40 } }) });
   const continueW = useQuery({ queryKey: ["home:continue"], queryFn: () => _continue() });
-  const popular = useQuery({ queryKey: ["home:popular"], queryFn: () => _listVideos({ data: { sort: "views", limit: 12 } }) });
+  const popular = useQuery({ queryKey: ["home:popular"], queryFn: () => _listVideos({ data: { sort: "views", limit: 40 } }) });
+
   const favs = useQuery({ queryKey: ["home:favs"], queryFn: () => _favorites() });
 
   useLiveVideos([["home:recent"], ["home:popular"], ["home:continue"], ["home:favs"]]);
@@ -101,7 +102,7 @@ function Home() {
         <>
           {hero ? <Hero v={hero} /> : null}
           <VideoRow title="Continue Watching" videos={continueW.data ?? []} />
-          <VideoRow title="Recently Added" videos={(recent.data ?? []).slice(1)} />
+          <VideoRow title="Recently Added" videos={recent.data ?? []} />
           <VideoRow title="Most Watched" videos={popular.data ?? []} />
           <VideoRow title="Favorites" videos={favs.data ?? []} />
         </>
