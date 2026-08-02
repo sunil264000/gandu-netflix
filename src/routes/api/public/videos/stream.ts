@@ -73,6 +73,20 @@ const VIDEO_CACHE_MS = 60_000;
 const seqCache = new Map<string, { nextByte: number; window: number; exp: number }>();
 const SEQ_CACHE_MS = 120_000;
 
+// Live concurrency on this isolate. Used to keep hundreds of simultaneous
+// viewers fair: window size and upstream fan-out both taper as load rises.
+let activeStreams = 0;
+function loadDivisor() {
+  if (activeStreams <= 4) return 1;
+  if (activeStreams <= 12) return 2;
+  if (activeStreams <= 32) return 4;
+  if (activeStreams <= 96) return 8;
+  return 16;
+}
+function parallelBudget() {
+  return Math.max(4, Math.floor(PARALLEL_FETCHES / loadDivisor()));
+}
+
 
 const BASE_HEADERS = {
   "accept-ranges": "bytes",
