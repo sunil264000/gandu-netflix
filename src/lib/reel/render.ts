@@ -343,10 +343,11 @@ function drawCaption(
         alpha *= easeOut(p * 1.6);
         if (word.i === activeWord) color = s.accent;
       } else if (tpl.anim === "karaoke") {
-        const done = word.i <= activeWord;
+        const done = settled || word.i <= activeWord;
         alpha *= done ? 1 : 0.42;
-        color = done && word.i === activeWord ? s.accent : tpl.palette.text;
-        scale = word.i === activeWord ? 1.06 + s.level * 0.05 : 1;
+        color = !settled && done && word.i === activeWord ? s.accent : tpl.palette.text;
+        scale = !settled && word.i === activeWord ? 1.06 + s.level * 0.05 : 1;
+
       } else if (tpl.anim === "slideUp") {
         dy = (1 - easeOut(p)) * lineH * 0.55;
         alpha *= easeOut(p);
