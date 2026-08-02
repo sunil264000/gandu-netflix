@@ -127,7 +127,11 @@ async function j(url: string, timeoutMs = 7000): Promise<any | null> {
   }
 }
 
-/** TMDB (used when a TMDB_API_KEY secret exists) — best quality metadata. */
+/**
+ * TMDB API (used when a TMDB_API_KEY secret exists) — best quality metadata.
+ * Pulls the full backdrop gallery and picks the highest-rated true 16:9 still
+ * at original resolution, so cards never get a cropped portrait poster.
+ */
 async function tmdbLookup(p: ParsedTitle): Promise<Candidate | null> {
   const key = process.env["TMDB_API_KEY"];
   if (!key) return null;
@@ -136,9 +140,26 @@ async function tmdbLookup(p: ParsedTitle): Promise<Candidate | null> {
   const data = await j(`https://api.themoviedb.org/3/search/multi?api_key=${key}&query=${q}${yr}&include_adult=false`);
   const hit = (data?.results ?? []).find((r: any) => r.poster_path || r.backdrop_path);
   if (!hit) return null;
-  const path = hit.backdrop_path ?? hit.poster_path;
-  return { url: `https://image.tmdb.org/t/p/w1280${path}`, source: "tmdb", score: 3 };
+
+  const kind = hit.media_type === "tv" || hit.first_air_date ? "tv" : "movie";
+  const images = await j(
+    `https://api.themoviedb.org/3/${kind}/${hit.id}/images?api_key=${key}&include_image_language=en,null`,
+  );
+  const wide: any[] = (images?.backdrops ?? []).filter(
+    (b: any) => typeof b.aspect_ratio === "number" && b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85,
+  );
+  if (wide.length) {
+    wide.sort(
+      (a, b) => b.vote_average - a.vote_average || b.width - a.width,
+    );
+    return { url: `https://image.tmdb.org/t/p/original${wide[0].file_path}`, source: "tmdb:backdrop", score: 5 };
+  }
+  if (hit.backdrop_path) {
+    return { url: `https://image.tmdb.org/t/p/original${hit.backdrop_path}`, source: "tmdb:backdrop", score: 4 };
+  }
+  return { url: `https://image.tmdb.org/t/p/w780${hit.poster_path}`, source: "tmdb:poster", score: 2 };
 }
+
 
 const SCRAPE_HEADERS = {
   "user-agent":
