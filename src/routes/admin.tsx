@@ -73,7 +73,9 @@ function Admin() {
       // 1) Clean release-name titles, 2) look up real artwork, 3) generate a
       // poster for whatever is still bare.
       const tidy = await _tidyTitles({ data: { force: false } });
-      const auto = await _autoPoster({ data: { force: false } });
+       // Existing JPG frame-grabs also need replacing, not only empty/SVG
+       // placeholders, so this repair action deliberately checks every title.
+       const auto = await _autoPoster({ data: { force: true } });
       const r = await _backfill();
       const parts: string[] = [];
       if (tidy.renamed > 0) parts.push(`Cleaned ${tidy.renamed} title${tidy.renamed === 1 ? "" : "s"}`);
@@ -109,7 +111,7 @@ function Admin() {
         <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
           <div className="min-w-0">
             <div className="text-sm font-semibold text-white">Automatic artwork</div>
-            <div className="text-xs text-white/60">Reads the release filename, looks the title up online, and attaches the real movie poster. Anything without a match falls back to a generated poster.</div>
+            <div className="text-xs text-white/60">Matches every title online and replaces old frame-grabs with proper movie artwork. Unmatched titles keep their current thumbnail.</div>
             {backfillMsg && <div className="mt-1 text-xs text-emerald-400">{backfillMsg}</div>}
           </div>
           <button
