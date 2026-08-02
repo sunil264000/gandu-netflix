@@ -240,17 +240,50 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
 
     const edgeCache: Cache | undefined = (globalThis as any).caches?.default;
 
+    // Every viewer asks for different byte offsets, so caching *slices* almost
+    // never hits. Caching whole parts makes the cache shared across all
+    // viewers of a title: with N concurrent watchers, storage sees roughly one
+    // read per part instead of N. Slices are cut out of the cached part.
+    const wholeKeyFor = (partPath: string) =>
+      new Request(`https://vault.stream.internal/${encodeURIComponent(partPath)}?whole=1`);
+
+    const sliceBody = (body: ReadableStream<Uint8Array>, from: number, to: number) => {
+      const want = to - from + 1;
+      let pos = 0;
+      let sent = 0;
+      return body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, ctrl) {
+            if (sent >= want) return;
+            const chunkStart = pos;
+            pos += chunk.byteLength;
+            if (pos - 1 < from) return;
+            const a = Math.max(0, from - chunkStart);
+            const b = Math.min(chunk.byteLength, a + (want - sent));
+            const piece = chunk.subarray(a, b);
+            sent += piece.byteLength;
+            ctrl.enqueue(piece);
+            if (sent >= want) ctrl.terminate();
+          },
+        }),
+      );
+    };
+
+    const cacheHeaders = { "cache-control": "public, max-age=604800", "content-type": "application/octet-stream" };
+
     const openPart = async (part: number): Promise<Response> => {
       const partPath = `${video.storage_path}.part-${String(part).padStart(6, "0")}`;
       const { sliceStart, sliceEnd } = partRangeOf(part);
-      const cacheKey = new Request(
-        `https://vault.stream.internal/${encodeURIComponent(partPath)}?s=${sliceStart}&e=${sliceEnd}`,
-      );
+      const partBytes = Math.min(chunkSize, total - part * chunkSize);
+      const wantsWholePart = sliceStart === 0 && sliceEnd >= partBytes - 1;
+      const cacheable = !download;
 
-      if (edgeCache) {
+      if (edgeCache && cacheable) {
         try {
-          const cached = await edgeCache.match(cacheKey);
-          if (cached?.body) return cached;
+          const cached = await edgeCache.match(wholeKeyFor(partPath));
+          if (cached?.body) {
+            return wantsWholePart ? cached : new Response(sliceBody(cached.body, sliceStart, sliceEnd));
+          }
         } catch {
           /* cache miss / unsupported */
         }
@@ -261,27 +294,27 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
         try {
           const signed = await getSignedUrl(partPath);
           if (!signed) throw new Error(`sign_failed:part=${part}`);
+          // Pull the whole part when it is cacheable so the next viewer is free;
+          // edge slices (first/last part of a window) fetch only what's needed.
+          const pullWhole = !!edgeCache && cacheable;
+          const reqStart = pullWhole ? 0 : sliceStart;
+          const reqEnd = pullWhole ? partBytes - 1 : sliceEnd;
           const res = await fetchWithTimeout(
             signed,
-            { headers: { range: `bytes=${sliceStart}-${sliceEnd}` } },
+            { headers: { range: `bytes=${reqStart}-${reqEnd}` } },
             CHUNK_FETCH_TIMEOUT_MS,
           );
           if ((res.status === 206 || res.status === 200) && res.body) {
-            if (edgeCache) {
-              try {
-                const [toCache, toClient] = res.body.tee();
-                void edgeCache.put(
-                  cacheKey,
-                  new Response(toCache, {
-                    headers: { "cache-control": "public, max-age=604800", "content-type": "application/octet-stream" },
-                  }),
-                );
-                return new Response(toClient);
-              } catch {
-                return res;
-              }
+            if (!pullWhole) return res;
+            try {
+              const [toCache, toClient] = res.body.tee();
+              void edgeCache!.put(wholeKeyFor(partPath), new Response(toCache, { headers: cacheHeaders }));
+              return wantsWholePart
+                ? new Response(toClient)
+                : new Response(sliceBody(toClient, sliceStart, sliceEnd));
+            } catch {
+              return res;
             }
-            return res;
           }
           if (res.status === 400 || res.status === 401 || res.status === 403) {
             urlCache.delete(partPath);
