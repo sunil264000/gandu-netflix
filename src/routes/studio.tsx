@@ -114,7 +114,7 @@ function StudioPage() {
       } else {
         levelRef.current *= 0.9;
       }
-      drawFrame(ctx, state(), t);
+      drawFrame(ctx, state({ settled }), t);
     },
     [state],
   );
