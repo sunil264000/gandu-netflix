@@ -4,7 +4,7 @@
 // file comes from drawFrame(). It is a pure function of (time, state): the same
 // second always paints the same pixels, which is what makes recording reliable.
 
-import type { Scene, Template } from "./templates";
+import type { Scene, Template, TransitionId } from "./templates";
 
 export const W = 1080;
 export const H = 1920;
