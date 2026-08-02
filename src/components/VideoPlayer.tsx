@@ -87,6 +87,26 @@ export function VideoPlayer({
     return localStorage.getItem("vault:fit") === "cover" ? "cover" : "contain";
   });
   const [stats, setStats] = useState(false);
+  // Auto HDR: expand SDR-mapped output toward the display's real dynamic range.
+  const [hdr, setHdr] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("vault:hdr") !== "off";
+  });
+  const [hdrDisplay, setHdrDisplay] = useState(false);
+  useEffect(() => {
+    try {
+      const mq = window.matchMedia("(dynamic-range: high)");
+      setHdrDisplay(mq.matches);
+      const on = () => setHdrDisplay(mq.matches);
+      mq.addEventListener("change", on);
+      return () => mq.removeEventListener("change", on);
+    } catch { return; }
+  }, []);
+  const hdrFilter = hdr
+    ? hdrDisplay
+      ? "contrast(1.04) saturate(1.06)"
+      : "contrast(1.09) saturate(1.14) brightness(1.03)"
+    : "none";
   const [noAudio, setNoAudio] = useState(false);
   const [noAudioDismissed, setNoAudioDismissed] = useState(false);
   const altRef = useRef<HTMLAudioElement>(null);
