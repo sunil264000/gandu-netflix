@@ -195,17 +195,32 @@ async function tmdbScrapeLookup(p: ParsedTitle): Promise<Candidate | null> {
 
     const link = page.match(/href="(\/(?:movie|tv)\/\d+[^"?#]*)"/);
     if (link?.[1]) {
-      const detail = await html(`https://www.themoviedb.org${link[1]}`);
+      const base = link[1].split("?")[0];
+
+      // The backdrops gallery lists every wide still the community uploaded —
+      // these are always true 16:9 and far sharper than the header crop.
+      const gallery = await html(`https://www.themoviedb.org${base}/images/backdrops`);
+      if (gallery) {
+        const files = [...gallery.matchAll(/image\.tmdb\.org\/t\/p\/w\d+_and_h\d+[a-z_]*\/([A-Za-z0-9]+\.(?:jpg|png))/g)]
+          .map((m) => m[1])
+          .filter((f, i, a) => a.indexOf(f) === i);
+        if (files[0]) {
+          return { url: `https://image.tmdb.org/t/p/original/${files[0]}`, source: "tmdb:backdrop", score: 5 };
+        }
+      }
+
+      const detail = await html(`https://www.themoviedb.org${base}`);
       if (detail) {
         const backdrop = detail.match(/\/t\/p\/w\d+_and_h\d+(?:_multi_faces|_face|_bestv2)?\/([A-Za-z0-9]+\.(?:jpg|png))"?[^>]*class="[^"]*backdrop/);
         const wide =
           backdrop?.[1] ??
           detail.match(/image\.tmdb\.org\/t\/p\/w1920_and_h800_multi_faces\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
-        if (wide) return { url: `https://image.tmdb.org/t/p/w1280/${wide}`, source: "tmdb:backdrop", score: 4 };
+        if (wide) return { url: `https://image.tmdb.org/t/p/original/${wide}`, source: "tmdb:backdrop", score: 4 };
         const poster = detail.match(/\/t\/p\/w\d+_and_h\d+_bestv2\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
         if (poster) return { url: `https://image.tmdb.org/t/p/w780/${poster}`, source: "tmdb:poster", score: 3 };
       }
     }
+
 
     const match = page.match(/\/t\/p\/w\d+_and_h\d+_face\/([A-Za-z0-9]+\.(?:jpg|png))/);
     if (match) return { url: `https://image.tmdb.org/t/p/w780/${match[1]}`, source: "tmdb", score: 3 };
