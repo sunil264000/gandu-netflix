@@ -608,12 +608,13 @@ export function drawFrame(ctx: CanvasRenderingContext2D, s: ReelState, t: number
     const dur = prev ? transDur(kind, prev, item) : 0;
     const p = dur > 0 ? clamp01((t - item.start) / dur) : 1;
 
+    const inTrans = Boolean(prev) && p < 1;
     const cur = layer(0);
-    drawCaption(cur.ctx, s, item, Math.min(t, item.end - 0.001));
+    drawCaption(cur.ctx, s, item, Math.min(t, item.end - 0.001), { plain: inTrans });
 
     if (prev && p < 1) {
       const old = layer(1);
-      drawCaption(old.ctx, s, prev, prev.end - 0.001);
+      drawCaption(old.ctx, s, prev, prev.end - 0.001, { plain: true });
       place(ctx, kind, { canvas: old.c, p, dir: "out" }, s.accent);
       place(ctx, kind, { canvas: cur.c, p, dir: "in" }, s.accent);
       transitionOverlay(ctx, kind, p, s.accent);
