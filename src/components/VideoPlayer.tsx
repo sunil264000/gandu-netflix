@@ -462,6 +462,107 @@ export function VideoPlayer({
     };
   }, [src]);
 
+  // ---- Silent-audio watchdog -------------------------------------------------
+  // Real-world failure: after the tab/app is backgrounded, the video keeps
+  // rendering but the audio decoder is torn down and never restarts — you have
+  // to seek back and forth to get sound back. We detect it (decoded audio bytes
+  // stop growing while the clock advances) and perform the same repair
+  // automatically, with a nudge small enough to be inaudible.
+  useEffect(() => {
+    const v = vidRef.current;
+    if (!v) return;
+
+    // A silent WebAudio graph keeps the page's audio session alive while the
+    // tab is hidden, which by itself prevents most blanking on Chrome/Android.
+    let ctx: AudioContext | null = null;
+    const ensureCtx = () => {
+      try {
+        const AC = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext })
+          .AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AC) return;
+        if (!ctx) {
+          ctx = new AC();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          gain.gain.value = 0.0001; // inaudible, but the session stays "active"
+          osc.connect(gain).connect(ctx.destination);
+          osc.start();
+        }
+        if (ctx.state === "suspended") void ctx.resume();
+      } catch { /* audio graph unavailable */ }
+    };
+
+    const decoded = () =>
+      (v as unknown as { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount;
+
+    let lastBytes = decoded() ?? -1;
+    let lastClock = v.currentTime;
+    let deadTicks = 0;
+    let repairs = 0;
+
+    const repair = () => {
+      const a = altRef.current;
+      try {
+        if (a && useAlt) {
+          // Companion track: rebuilding it is cheap and inaudible.
+          const t = v.currentTime;
+          a.currentTime = t;
+          void a.play().catch(() => {});
+        }
+        const t = v.currentTime;
+        // Tiny backwards nudge rebuilds the decoder pipeline without a visible jump.
+        v.currentTime = Math.max(0, t - (repairs < 2 ? 0.06 : 0.4));
+        void v.play().catch(() => {});
+      } catch { /* ignore */ }
+      repairs += 1;
+    };
+
+    const tick = () => {
+      if (v.paused || v.seeking) { deadTicks = 0; return; }
+      const bytes = decoded();
+      const clockMoved = v.currentTime - lastClock > 0.2;
+      lastClock = v.currentTime;
+      if (typeof bytes !== "number") return; // browser doesn't expose the counter
+      const audioMoved = bytes > lastBytes;
+      lastBytes = bytes;
+      // Only a *silent* stream matters: picture advancing while audio is frozen.
+      if (clockMoved && !audioMoved && bytes > 0) {
+        deadTicks += 1;
+        if (deadTicks >= 3) { deadTicks = 0; repair(); }
+      } else if (audioMoved) {
+        deadTicks = 0;
+        repairs = 0;
+      }
+    };
+
+    const iv = setInterval(tick, 1000);
+    const onVisible = () => {
+      if (document.hidden) return;
+      ensureCtx();
+      deadTicks = 0;
+      lastBytes = decoded() ?? -1;
+      // Give the pipeline a beat to resume on its own, then verify.
+      setTimeout(() => {
+        if (v.paused) return;
+        const now = decoded();
+        if (typeof now === "number" && now === lastBytes) repair();
+      }, 1200);
+    };
+    const onPlay = () => ensureCtx();
+
+    document.addEventListener("visibilitychange", onVisible);
+    v.addEventListener("play", onPlay);
+    if (!v.paused) ensureCtx();
+
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onVisible);
+      v.removeEventListener("play", onPlay);
+      try { void ctx?.close(); } catch { /* ignore */ }
+    };
+  }, [src, useAlt]);
+
+
 
   const togglePlay = useCallback(() => { const v = vidRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }, []);
   const seek = useCallback((dt: number) => {
