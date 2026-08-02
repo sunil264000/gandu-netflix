@@ -272,15 +272,20 @@ export async function findPosterUrl(filenameOrTitle: string): Promise<{ url: str
   if (!parsed.title || parsed.title.length < 2) return null;
 
   const providers = [tmdbLookup, tmdbScrapeLookup, itunesLookup, wikipediaLookup];
+  let best: Candidate | null = null;
   for (const provider of providers) {
     try {
       const hit = await provider(parsed);
-      if (hit) return { url: hit.url, source: hit.source, query: parsed.title };
+      if (hit && (!best || hit.score > best.score)) best = hit;
+      // score >= 4 means a true wide 16:9 still — good enough, stop early.
+      if (best && best.score >= 4) break;
     } catch {
       /* try next provider */
     }
   }
+  if (best) return { url: best.url, source: best.source, query: parsed.title };
   return null;
+
 }
 
 /** Downloads the artwork and stores it in the thumbnails bucket. */
