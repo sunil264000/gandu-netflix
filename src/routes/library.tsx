@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { Page, PageHeading } from "@/components/PageShell";
-import { VideoCard, VideoGridSkeleton, gridCls } from "@/components/VideoCard";
+import { VideoGrid, VideoGridSkeleton } from "@/components/VideoCard";
 import { listVideos, listCategories } from "@/lib/videos.functions";
 
 export const Route = createFileRoute("/library")({
