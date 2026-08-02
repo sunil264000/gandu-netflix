@@ -1,13 +1,16 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Heart, ArrowLeft, Play, Share2, Clock, Info, Headphones, ExternalLink, Copy } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { TurboDownload } from "@/components/TurboDownload";
+import { extractCompatibleAudioFromServer, serverRescueSupported, type TranscodeProgress } from "@/lib/audioTranscode";
+import { uploadAny } from "@/lib/storageUpload";
 
-import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite } from "@/lib/videos.functions";
+import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite, attachAudioTrack } from "@/lib/videos.functions";
+
 
 export const Route = createFileRoute("/watch/$slug")({
   component: Watch,
@@ -87,6 +90,9 @@ function Watch() {
   const _related = useServerFn(listVideos);
   const _isFav = useServerFn(isFavorite);
   const _toggleFav = useServerFn(toggleFavorite);
+  const _attachAudio = useServerFn(attachAudioTrack);
+  const aacRunning = useRef(false);
+  const [aac, setAac] = useState<{ pct: number; stage: string } | null>(null);
   const [fav, setFav] = useState(false);
   const [autoplay, setAutoplay] = useState(true);
   const [showTip, setShowTip] = useState(true);
@@ -122,6 +128,44 @@ function Watch() {
     setFav(r.favorited);
   };
 
+  // ---- Automatic AAC rescue -------------------------------------------------
+  // If the browser reports that it decoded zero audio bytes, the soundtrack is
+  // DTS / TrueHD / E-AC-3. Build a companion AAC rendition automatically from
+  // the server copy (WebAssembly ffmpeg) and attach it — no manual step.
+  const autoFixAudio = useCallback(() => {
+    if (!vid || vid.audio_url || aacRunning.current) return;
+    if (!serverRescueSupported()) return;
+    aacRunning.current = true;
+    setAac({ pct: 0, stage: "Preparing audio" });
+    (async () => {
+      try {
+        const ext = ((vid as { storage_path?: string }).storage_path ?? "").split(".").pop() || "mkv";
+        const res = await extractCompatibleAudioFromServer({
+          streamUrl: `/api/public/videos/stream?id=${encodeURIComponent(vid.id)}`,
+          fileName: `${vid.title}.${ext.toLowerCase()}`,
+          sizeBytes: Number(vid.size_bytes ?? 0),
+          onProgress: (p: TranscodeProgress) =>
+            setAac({
+              pct: p.pct,
+              stage: p.phase === "converting" ? "Converting audio" : p.phase === "loading" ? "Loading engine" : "Reading source",
+            }),
+        });
+        setAac({ pct: 0, stage: "Saving audio" });
+        const path = `audio/${vid.id}.${res.ext}`;
+        const toUpload = new File([res.blob], `${vid.id}.${res.ext}`, { type: "audio/mp4" });
+        await uploadAny("videos", path, toUpload, (p: number) => setAac({ pct: p, stage: "Saving audio" }));
+        await _attachAudio({ data: { videoId: vid.id, path, label: res.label } });
+        setAac(null);
+        video.refetch();
+      } catch {
+        setAac(null);
+      } finally {
+        aacRunning.current = false;
+      }
+    })();
+  }, [vid, _attachAudio, video]);
+
+
   const upNext = (related.data ?? []).filter((v) => vid && v.id !== vid.id);
 
   return (
@@ -151,11 +195,22 @@ function Watch() {
                       onEnded={onEnded}
                       autoPlay
                       audioSrc={vid.audio_url}
+                      onNoAudio={autoFixAudio}
                       audioLabel={(vid as { audio_label?: string | null }).audio_label ?? null}
                       playlistUrl={vid.playlist_url}
                     />
                   )}
                 </div>
+                {aac && (
+                  <div className="mt-2 rounded-lg border border-red-500/30 bg-zinc-900/70 px-3 py-2">
+                    <p className="text-[11px] font-semibold text-white">
+                      {aac.stage} — building a browser-compatible AAC track automatically
+                    </p>
+                    <div className="mt-1.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="h-full bg-red-500 transition-all" style={{ width: `${Math.max(2, aac.pct)}%` }} />
+                    </div>
+                  </div>
+                )}
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <div className="flex items-start gap-2 text-[11px] text-zinc-400 bg-zinc-900/60 border border-white/5 rounded-lg px-3 py-2">
                     <Headphones className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-400" />

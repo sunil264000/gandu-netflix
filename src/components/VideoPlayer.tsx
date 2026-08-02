@@ -21,6 +21,8 @@ type Props = {
   audioLabel?: string | null;
   /** .m3u handoff for desktop players (original audio, no re-encode). */
   playlistUrl?: string | null;
+  /** Fired once when the original soundtrack turns out to be undecodable. */
+  onNoAudio?: () => void;
 };
 
 function fmt(t: number) {
@@ -40,11 +42,12 @@ function qualityLabel(h: number) {
 }
 
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
-const DRIFT_TOLERANCE = 0.25; // seconds of allowed A/V drift before resync
+const DRIFT_TOLERANCE = 0.06; // start bending the audio clock past this
+const HARD_RESYNC = 0.45; // only re-seek the audio past this much drift
 
 export function VideoPlayer({
   src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions,
-  audioSrc, audioLabel, playlistUrl,
+  audioSrc, audioLabel, playlistUrl, onNoAudio,
 }: Props) {
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -86,6 +89,26 @@ export function VideoPlayer({
     return localStorage.getItem("vault:fit") === "cover" ? "cover" : "contain";
   });
   const [stats, setStats] = useState(false);
+  // Auto HDR: expand SDR-mapped output toward the display's real dynamic range.
+  const [hdr, setHdr] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("vault:hdr") !== "off";
+  });
+  const [hdrDisplay, setHdrDisplay] = useState(false);
+  useEffect(() => {
+    try {
+      const mq = window.matchMedia("(dynamic-range: high)");
+      setHdrDisplay(mq.matches);
+      const on = () => setHdrDisplay(mq.matches);
+      mq.addEventListener("change", on);
+      return () => mq.removeEventListener("change", on);
+    } catch { return; }
+  }, []);
+  const hdrFilter = hdr
+    ? hdrDisplay
+      ? "contrast(1.04) saturate(1.06)"
+      : "contrast(1.09) saturate(1.14) brightness(1.03)"
+    : "none";
   const [noAudio, setNoAudio] = useState(false);
   const [noAudioDismissed, setNoAudioDismissed] = useState(false);
   const altRef = useRef<HTMLAudioElement>(null);
@@ -102,6 +125,7 @@ export function VideoPlayer({
   const lastSnap = useRef(0);
   const lastReport = useRef(0);
   const lastTap = useRef<{ t: number; side: "l" | "r" | null }>({ t: 0, side: null });
+  const noAudioFired = useRef(false);
   const SNAP_BUCKET = 2; // seconds per cached snapshot
 
 
@@ -215,7 +239,12 @@ export function VideoPlayer({
       // video decodes fine but zero audio bytes are ever decoded.
       if (!audioSrc && !v.paused && v.currentTime > 4) {
         const decoded = (v as unknown as { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount;
-        if (typeof decoded === "number") setNoAudio(decoded === 0);
+        if (typeof decoded === "number" && decoded === 0) {
+          setNoAudio(true);
+          if (!noAudioFired.current) { noAudioFired.current = true; onNoAudio?.(); }
+        } else if (typeof decoded === "number") {
+          setNoAudio(false);
+        }
       }
 
 
@@ -270,7 +299,7 @@ export function VideoPlayer({
       v.removeEventListener("playing", onCanPlay);
       v.removeEventListener("ratechange", onRate);
     };
-  }, [startAt, onProgress, onEnded, kickHide, audioSrc]);
+  }, [startAt, onProgress, onEnded, kickHide, audioSrc, onNoAudio]);
 
   useEffect(() => {
     const onFs = () => setFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
@@ -327,12 +356,26 @@ export function VideoPlayer({
     a.volume = volume;
     a.playbackRate = v.playbackRate;
 
+    // Small drift is corrected by *bending* the audio clock (inaudible), only a
+    // large gap justifies a hard seek — hard seeks are what people hear as the
+    // "audio delay / hiccup".
+    const softCorrect = (d: number) => {
+      const base = v.playbackRate;
+      const adj = Math.max(-0.03, Math.min(0.03, -d * 0.08));
+      a.playbackRate = base * (1 + adj);
+    };
+
     const sync = (force = false) => {
-      if (!a.duration && !force) return;
+      if (v.seeking || v.readyState < 2) return;
       const d = a.currentTime - v.currentTime;
       setDrift(d);
-      if (force || Math.abs(d) > DRIFT_TOLERANCE) {
+      if (force || Math.abs(d) > HARD_RESYNC) {
         try { a.currentTime = v.currentTime; } catch { /* not seekable yet */ }
+        a.playbackRate = v.playbackRate;
+      } else if (Math.abs(d) > DRIFT_TOLERANCE) {
+        softCorrect(d);
+      } else if (a.playbackRate !== v.playbackRate) {
+        a.playbackRate = v.playbackRate;
       }
     };
 
@@ -341,9 +384,16 @@ export function VideoPlayer({
     const onSeeked = () => { sync(true); if (!v.paused) a.play().catch(() => {}); };
     const onSeeking = () => a.pause();
     const onRate = () => { a.playbackRate = v.playbackRate; };
-    const onWait = () => a.pause();
+    // Never pause the companion track while the tab is hidden — background
+    // throttling makes "waiting" fire spuriously and the audio never came back.
+    const onWait = () => { if (!document.hidden) a.pause(); };
     const onPlaying = () => { sync(true); a.play().catch(() => {}); };
     const onAltReady = () => setAltReady(true);
+    const onVisible = () => {
+      if (document.hidden) return;
+      sync(true);
+      if (!v.paused) a.play().catch(() => {});
+    };
 
     v.addEventListener("play", onPlay);
     v.addEventListener("pause", onPause);
@@ -354,8 +404,13 @@ export function VideoPlayer({
     v.addEventListener("playing", onPlaying);
     a.addEventListener("loadedmetadata", onAltReady);
     a.addEventListener("canplay", onAltReady);
+    document.addEventListener("visibilitychange", onVisible);
 
-    const iv = setInterval(() => { if (!v.paused && !v.seeking) sync(); }, 1000);
+    const iv = setInterval(() => {
+      if (v.paused || v.seeking) return;
+      if (a.paused) { a.play().catch(() => {}); sync(true); return; }
+      sync();
+    }, 500);
     if (!v.paused) onPlay();
 
     return () => {
@@ -369,9 +424,44 @@ export function VideoPlayer({
       v.removeEventListener("playing", onPlaying);
       a.removeEventListener("loadedmetadata", onAltReady);
       a.removeEventListener("canplay", onAltReady);
+      document.removeEventListener("visibilitychange", onVisible);
       a.pause();
     };
   }, [useAlt, audioSrc, muted, volume]);
+
+  // Keep playing when the tab/app goes to the background: without a Media
+  // Session the OS suspends the media element and the sound "blanks out".
+  useEffect(() => {
+    const v = vidRef.current;
+    if (!v) return;
+    const ms = (navigator as unknown as { mediaSession?: MediaSession }).mediaSession;
+    if (ms) {
+      try {
+        ms.setActionHandler("play", () => { v.play().catch(() => {}); });
+        ms.setActionHandler("pause", () => v.pause());
+        ms.setActionHandler("seekbackward", () => { v.currentTime = Math.max(0, v.currentTime - 10); });
+        ms.setActionHandler("seekforward", () => { v.currentTime = Math.min(v.duration || 0, v.currentTime + 10); });
+      } catch { /* unsupported actions */ }
+    }
+    const onVisible = () => {
+      if (document.hidden) return;
+      // Background throttling can leave the element stalled — nudge it awake.
+      if (!v.paused && v.readyState >= 2) v.play().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      if (ms) {
+        try {
+          ms.setActionHandler("play", null);
+          ms.setActionHandler("pause", null);
+          ms.setActionHandler("seekbackward", null);
+          ms.setActionHandler("seekforward", null);
+        } catch { /* ignore */ }
+      }
+    };
+  }, [src]);
+
 
   const togglePlay = useCallback(() => { const v = vidRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }, []);
   const seek = useCallback((dt: number) => {
@@ -500,7 +590,7 @@ export function VideoPlayer({
         src={playSrc}
         poster={poster ?? undefined}
         className={`w-full h-full touch-manipulation ${fit === "cover" ? "object-cover" : "object-contain"}`}
-        style={{ imageRendering: "auto" }}
+        style={{ imageRendering: "auto", filter: hdrFilter, ...({ dynamicRange: "high" } as Record<string, string>) }}
         autoPlay={autoPlay}
         playsInline
         preload="auto"
@@ -749,6 +839,25 @@ export function VideoPlayer({
                     <span>Mode</span>
                     <span className="text-right font-mono text-red-400">Original (no re-encode)</span>
                   </div>
+
+                  <button
+                    onClick={() => {
+                      setHdr((h) => {
+                        const next = !h;
+                        try { localStorage.setItem("vault:hdr", next ? "on" : "off"); } catch { /* ignore */ }
+                        flashToast(next ? "Auto HDR on" : "Auto HDR off");
+                        return next;
+                      });
+                    }}
+                    className={`w-full mb-3 px-2 py-1.5 rounded-md text-left text-[11px] font-medium transition ${hdr ? "bg-red-600/80 text-white" : "bg-white/10 hover:bg-white/20 text-white/85"}`}
+                  >
+                    Auto HDR {hdr ? "on" : "off"}
+                    <span className="block text-[9px] font-normal opacity-70">
+                      {hdrDisplay ? "HDR display detected" : "Tone-expanded for SDR display"}
+                    </span>
+                  </button>
+
+
 
                   <div className="text-white font-semibold mb-2 text-xs">Audio track</div>
                   {audioSrc ? (
