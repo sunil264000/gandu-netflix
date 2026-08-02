@@ -664,8 +664,9 @@ export function drawFrame(ctx: CanvasRenderingContext2D, s: ReelState, t: number
   if (item) {
     const prev = i > 0 ? items[i - 1] : undefined;
     const kind = resolve(item, s.template);
-    const dur = prev ? transDur(kind, prev, item) : 0;
+    const dur = prev && !s.settled ? transDur(kind, prev, item) : 0;
     const p = dur > 0 ? clamp01((t - item.start) / dur) : 1;
+
 
     // If the following scene cuts with a real transition, this caption must not
     // fade itself out first — otherwise the cut blends two ghosts.
