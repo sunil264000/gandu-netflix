@@ -190,7 +190,9 @@ function Watch() {
   }, [vid, _attachAudio, video]);
 
 
-  const upNext = (related.data ?? []).filter((v) => vid && v.id !== vid.id);
+  const episodeIds = new Set(episodes.map((e) => e.v.id));
+  const upNext = (related.data ?? []).filter((v) => vid && v.id !== vid.id && !episodeIds.has(v.id));
+
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30">
