@@ -3,6 +3,10 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Loader2, Trash2, Download } from "lucide-react";
 import { startUrlIngest, pumpIngest, listIngestJobs, cancelIngest } from "@/lib/ingest.functions";
+import { autoPosterForVideo } from "@/lib/posters.functions";
+import { attachAudioTrack } from "@/lib/videos.functions";
+import { extractCompatibleAudioFromServer, serverRescueSupported, likelyNeedsCompatibleAudio } from "@/lib/audioTranscode";
+import { uploadAny } from "@/lib/storageUpload";
 
 function fmtBytes(b: number) {
   if (b >= 1e12) return (b / 1e12).toFixed(2) + " TB";
@@ -22,6 +26,9 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
   const _pump = useServerFn(pumpIngest);
   const _list = useServerFn(listIngestJobs);
   const _cancel = useServerFn(cancelIngest);
+  const _poster = useServerFn(autoPosterForVideo);
+  const _attach = useServerFn(attachAudioTrack);
+  const [post, setPost] = useState<Record<string, string>>({});
 
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
@@ -50,6 +57,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
           }
           qc.invalidateQueries({ queryKey: ["admin:videos"] });
           onDone();
+          await finishImport(job);
         } catch {
           /* surfaced through the job row */
         } finally {
