@@ -151,6 +151,7 @@ function Watch() {
                       onEnded={onEnded}
                       autoPlay
                       audioSrc={vid.audio_url}
+                      onNoAudio={autoFixAudio}
                       audioLabel={(vid as { audio_label?: string | null }).audio_label ?? null}
                       playlistUrl={vid.playlist_url}
                     />
