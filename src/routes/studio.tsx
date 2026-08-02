@@ -13,8 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
 import {
-  TEMPLATES, textToScenes, newScene, fitScenesTo, sceneDuration,
-  type Scene, type Template,
+  TEMPLATES, TRANSITIONS, textToScenes, newScene, fitScenesTo, sceneDuration,
+  type Scene, type Template, type TransitionId,
 } from "@/lib/reel/templates";
 import { drawFrame, timeline, W, H, type ReelMedia, type ReelState } from "@/lib/reel/render";
 import { recordReel, downloadBlob, pickMime, webmToMp4 } from "@/lib/reel/export";
