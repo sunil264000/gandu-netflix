@@ -371,7 +371,8 @@ function drawCaption(
 
       if (tpl.anim === "type") {
         // Reveal character by character across the whole block.
-        const chars = Math.floor(clamp01(local / (dur * 0.7)) * countChars(lines));
+        const chars = settled ? countChars(lines) : Math.floor(clamp01(local / (dur * 0.7)) * countChars(lines));
+
         const before = charsBefore(lines, word.i);
         const visible = Math.max(0, Math.min(word.text.length, chars - before));
         if (visible <= 0) {
