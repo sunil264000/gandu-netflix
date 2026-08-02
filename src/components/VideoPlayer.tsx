@@ -327,12 +327,26 @@ export function VideoPlayer({
     a.volume = volume;
     a.playbackRate = v.playbackRate;
 
+    // Small drift is corrected by *bending* the audio clock (inaudible), only a
+    // large gap justifies a hard seek — hard seeks are what people hear as the
+    // "audio delay / hiccup".
+    const softCorrect = (d: number) => {
+      const base = v.playbackRate;
+      const adj = Math.max(-0.03, Math.min(0.03, -d * 0.08));
+      a.playbackRate = base * (1 + adj);
+    };
+
     const sync = (force = false) => {
-      if (!a.duration && !force) return;
+      if (v.seeking || v.readyState < 2) return;
       const d = a.currentTime - v.currentTime;
       setDrift(d);
-      if (force || Math.abs(d) > DRIFT_TOLERANCE) {
+      if (force || Math.abs(d) > HARD_RESYNC) {
         try { a.currentTime = v.currentTime; } catch { /* not seekable yet */ }
+        a.playbackRate = v.playbackRate;
+      } else if (Math.abs(d) > DRIFT_TOLERANCE) {
+        softCorrect(d);
+      } else if (a.playbackRate !== v.playbackRate) {
+        a.playbackRate = v.playbackRate;
       }
     };
 
@@ -341,9 +355,16 @@ export function VideoPlayer({
     const onSeeked = () => { sync(true); if (!v.paused) a.play().catch(() => {}); };
     const onSeeking = () => a.pause();
     const onRate = () => { a.playbackRate = v.playbackRate; };
-    const onWait = () => a.pause();
+    // Never pause the companion track while the tab is hidden — background
+    // throttling makes "waiting" fire spuriously and the audio never came back.
+    const onWait = () => { if (!document.hidden) a.pause(); };
     const onPlaying = () => { sync(true); a.play().catch(() => {}); };
     const onAltReady = () => setAltReady(true);
+    const onVisible = () => {
+      if (document.hidden) return;
+      sync(true);
+      if (!v.paused) a.play().catch(() => {});
+    };
 
     v.addEventListener("play", onPlay);
     v.addEventListener("pause", onPause);
@@ -354,8 +375,13 @@ export function VideoPlayer({
     v.addEventListener("playing", onPlaying);
     a.addEventListener("loadedmetadata", onAltReady);
     a.addEventListener("canplay", onAltReady);
+    document.addEventListener("visibilitychange", onVisible);
 
-    const iv = setInterval(() => { if (!v.paused && !v.seeking) sync(); }, 1000);
+    const iv = setInterval(() => {
+      if (v.paused || v.seeking) return;
+      if (a.paused) { a.play().catch(() => {}); sync(true); return; }
+      sync();
+    }, 500);
     if (!v.paused) onPlay();
 
     return () => {
@@ -369,9 +395,44 @@ export function VideoPlayer({
       v.removeEventListener("playing", onPlaying);
       a.removeEventListener("loadedmetadata", onAltReady);
       a.removeEventListener("canplay", onAltReady);
+      document.removeEventListener("visibilitychange", onVisible);
       a.pause();
     };
   }, [useAlt, audioSrc, muted, volume]);
+
+  // Keep playing when the tab/app goes to the background: without a Media
+  // Session the OS suspends the media element and the sound "blanks out".
+  useEffect(() => {
+    const v = vidRef.current;
+    if (!v) return;
+    const ms = (navigator as unknown as { mediaSession?: MediaSession }).mediaSession;
+    if (ms) {
+      try {
+        ms.setActionHandler("play", () => { v.play().catch(() => {}); });
+        ms.setActionHandler("pause", () => v.pause());
+        ms.setActionHandler("seekbackward", () => { v.currentTime = Math.max(0, v.currentTime - 10); });
+        ms.setActionHandler("seekforward", () => { v.currentTime = Math.min(v.duration || 0, v.currentTime + 10); });
+      } catch { /* unsupported actions */ }
+    }
+    const onVisible = () => {
+      if (document.hidden) return;
+      // Background throttling can leave the element stalled — nudge it awake.
+      if (!v.paused && v.readyState >= 2) v.play().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      if (ms) {
+        try {
+          ms.setActionHandler("play", null);
+          ms.setActionHandler("pause", null);
+          ms.setActionHandler("seekbackward", null);
+          ms.setActionHandler("seekforward", null);
+        } catch { /* ignore */ }
+      }
+    };
+  }, [src]);
+
 
   const togglePlay = useCallback(() => { const v = vidRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }, []);
   const seek = useCallback((dt: number) => {
