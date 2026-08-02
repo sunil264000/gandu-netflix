@@ -6,18 +6,19 @@ import { log, newRequestId, errShape } from "@/lib/server-log";
 // how fast the player can start decoding. So: a small first window on a seek
 // (fast time-to-first-frame), then the window RAMPS UP on every sequential
 // follow-up until it's effectively "the rest of the file in one connection".
-const START_RESPONSE_BYTES = 24 * 1024 * 1024; // first window after a seek
+const START_RESPONSE_BYTES = 32 * 1024 * 1024; // first window after a seek
 const MAX_RESPONSE_BYTES = 1024 * 1024 * 1024; // steady-state ceiling
-const WINDOW_RAMP = 6; // window multiplier per sequential request
-const FAST_START_ZONE = 32 * 1024 * 1024; // tolerance for "still sequential"
+const WINDOW_RAMP = 8; // window multiplier per sequential request
+const FAST_START_ZONE = 64 * 1024 * 1024; // tolerance for "still sequential"
 const PARALLEL_FETCHES = 24; // upstream part reads in flight
-const PREWARM_URL_PARTS = 24; // signed URLs warmed beyond the served window
+const PREWARM_URL_PARTS = 32; // signed URLs warmed beyond the served window
 const PREVIEW_RESPONSE_BYTES = 1 * 1024 * 1024; // tiny window for scrub previews
-const PREWARM_CACHE_PARTS = 4; // whole parts pushed into edge cache ahead of playback
+const PREWARM_CACHE_PARTS = 6; // whole parts pushed into edge cache ahead of playback
 // 8K / very-high-bitrate sources burn through a window far faster than 1080p,
 // so the start window scales with the file's average bitrate.
 const HUGE_FILE_BYTES = 20 * 1024 * 1024 * 1024; // ~8K remux territory
-const HUGE_START_RESPONSE_BYTES = 64 * 1024 * 1024;
+const HUGE_START_RESPONSE_BYTES = 96 * 1024 * 1024;
+
 // Download mode: the client opens many connections itself, so each response
 // should honour the exact requested range (no ramping, no read-ahead) and just
 // move bytes as fast as the upstream allows.
