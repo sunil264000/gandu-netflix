@@ -54,6 +54,8 @@ export type Template = {
   box: "none" | "pill" | "bar";
   /** Dark scrim strength when a photo/clip is used as the background. */
   scrim: number;
+  /** House-style transition used when a scene is set to `auto`. */
+  transition: Exclude<TransitionId, "auto">;
 };
 
 export const TEMPLATES: Template[] = [
@@ -73,6 +75,7 @@ export const TEMPLATES: Template[] = [
     anim: "wordPop",
     box: "none",
     scrim: 0.55,
+    transition: "punch",
   },
   {
     id: "caption",
@@ -90,6 +93,7 @@ export const TEMPLATES: Template[] = [
     anim: "karaoke",
     box: "pill",
     scrim: 0.35,
+    transition: "slideUp",
   },
   {
     id: "editorial",
@@ -107,6 +111,7 @@ export const TEMPLATES: Template[] = [
     anim: "fade",
     box: "none",
     scrim: 0.5,
+    transition: "fade",
   },
   {
     id: "neon",
@@ -124,6 +129,7 @@ export const TEMPLATES: Template[] = [
     anim: "slideUp",
     box: "none",
     scrim: 0.45,
+    transition: "whip",
   },
   {
     id: "paper",
@@ -141,6 +147,7 @@ export const TEMPLATES: Template[] = [
     anim: "type",
     box: "none",
     scrim: 0.15,
+    transition: "swipe",
   },
   {
     id: "cinema",
@@ -158,6 +165,61 @@ export const TEMPLATES: Template[] = [
     anim: "slideUp",
     box: "bar",
     scrim: 0.6,
+    transition: "clock",
+  },
+  {
+    id: "vhs",
+    name: "VHS Glitch",
+    blurb: "Chromatic tape look with glitch cuts. Meme and edit energy.",
+    backdrop: "grid",
+    palette: { a: "#05060a", b: "#1b0733", accent: "#ff2bd1", text: "#e8f6ff", dim: "#8ea7c4" },
+    font: "'Space Grotesk', Inter, sans-serif",
+    weight: 700,
+    size: 104,
+    uppercase: true,
+    letter: 1,
+    lineGap: 1.1,
+    layout: "center",
+    anim: "wordPop",
+    box: "none",
+    scrim: 0.5,
+    transition: "glitch",
+  },
+  {
+    id: "minimal",
+    name: "Soft Minimal",
+    blurb: "Airy off-white stage, gentle fades. Coach and brand posts.",
+    backdrop: "mesh",
+    palette: { a: "#f4f1ec", b: "#e6e0d6", accent: "#1f6feb", text: "#14151a", dim: "#6b6b73" },
+    font: "Inter, system-ui, sans-serif",
+    weight: 700,
+    size: 92,
+    uppercase: false,
+    letter: -0.5,
+    lineGap: 1.24,
+    layout: "center",
+    anim: "fade",
+    box: "none",
+    scrim: 0.2,
+    transition: "blinds",
+  },
+  {
+    id: "story",
+    name: "Story Pop",
+    blurb: "Bright cards with bouncy pushes. Tips, lists and hooks.",
+    backdrop: "split",
+    palette: { a: "#101322", b: "#23124a", accent: "#ffb020", text: "#ffffff", dim: "#b8bdd0" },
+    font: "Inter, system-ui, sans-serif",
+    weight: 800,
+    size: 96,
+    uppercase: false,
+    letter: -1,
+    lineGap: 1.16,
+    layout: "center",
+    anim: "slideUp",
+    box: "pill",
+    scrim: 0.4,
+    transition: "flash",
   },
 ];
 
