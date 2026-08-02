@@ -110,6 +110,22 @@ function Watch() {
 
   const vid = video.data;
 
+  // ---- Series / episode list -----------------------------------------------
+  const thisEp = vid ? parseEpisode(vid.title) : null;
+  const seriesQ = useQuery({
+    queryKey: ["series", thisEp?.key ?? null],
+    queryFn: () => _search({ data: { q: thisEp!.series } }),
+    enabled: !!thisEp,
+  });
+  const episodes = (seriesQ.data ?? [])
+    .map((v) => ({ v, ep: parseEpisode(v.title) }))
+    .filter((x): x is { v: (typeof seriesQ.data)[number]; ep: EpisodeInfo } =>
+      !!x.ep && normalizeKey(x.ep.series) === (thisEp?.key ?? ""))
+    .sort((a, b) => compareEpisodes(a.ep, b.ep));
+  const currentIdx = episodes.findIndex((e) => e.v.id === vid?.id);
+  const nextEpisode = currentIdx >= 0 ? episodes[currentIdx + 1] : undefined;
+
+
   useEffect(() => { if (vid) _isFav({ data: { videoId: vid.id } }).then((r) => setFav(r.favorited)); }, [_isFav, vid]);
   useEffect(() => { if (vid) _bump({ data: { videoId: vid.id } }).catch(() => {}); }, [vid, _bump]);
 
