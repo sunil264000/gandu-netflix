@@ -42,6 +42,47 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
     refetchInterval: 3000,
   });
 
+  // Once the bytes are in storage the import isn't really finished: the title
+  // still needs real artwork, and release rips need an AAC companion track
+  // before any browser can play their Dolby/DTS soundtrack. Both run here,
+  // automatically, so an imported file is watchable without any manual step.
+  const finishImport = useCallback(
+    async (job: { id: string; video_id: string | null; file_name: string; total_bytes: number }) => {
+      if (!job.video_id) return;
+      const videoId = job.video_id;
+      try {
+        setPost((m) => ({ ...m, [job.id]: "Fetching artwork…" }));
+        await _poster({ data: { videoId } });
+        qc.invalidateQueries({ queryKey: ["admin:videos"] });
+      } catch { /* artwork is best-effort */ }
+
+      const needsAac =
+        likelyNeedsCompatibleAudio(job.file_name) || !/\.(mp4|m4v|webm)$/i.test(job.file_name);
+      if (needsAac && serverRescueSupported()) {
+        try {
+          const res = await extractCompatibleAudioFromServer({
+            streamUrl: `/api/public/videos/stream?id=${encodeURIComponent(videoId)}`,
+            fileName: job.file_name,
+            sizeBytes: Number(job.total_bytes),
+            onProgress: (p) =>
+              setPost((m) => ({
+                ...m,
+                [job.id]: `${p.phase === "converting" ? "Converting audio" : "Reading audio"} ${p.pct.toFixed(0)}%`,
+              })),
+          });
+          setPost((m) => ({ ...m, [job.id]: "Saving audio…" }));
+          const path = `audio/${videoId}.${res.ext}`;
+          await uploadAny("videos", path, new File([res.blob], `${videoId}.${res.ext}`, { type: "audio/mp4" }));
+          await _attach({ data: { videoId, path, label: res.label } });
+        } catch { /* the admin "Fix audio" button remains as a manual fallback */ }
+      }
+      setPost((m) => { const n = { ...m }; delete n[job.id]; return n; });
+      qc.invalidateQueries({ queryKey: ["admin:videos"] });
+      onDone();
+    },
+    [_poster, _attach, qc, onDone],
+  );
+
   // Keep every unfinished job moving: one in-flight pump per job at a time.
   useEffect(() => {
     const active = (jobs.data ?? []).filter((j) => j.status === "queued" || j.status === "running");
