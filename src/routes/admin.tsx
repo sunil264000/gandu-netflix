@@ -14,7 +14,7 @@ import { uploadAny } from "@/lib/storageUpload";
 import { extractCompatibleAudio, extractCompatibleAudioFromServer, serverRescueSupported, type TranscodeProgress } from "@/lib/audioTranscode";
 import { UrlIngest } from "@/components/UrlIngest";
 
-import { autoPosterSweep } from "@/lib/posters.functions";
+import { autoPosterSweep, tidyTitlesSweep } from "@/lib/posters.functions";
 
 import { useLiveVideos } from "@/hooks/useLiveVideos";
 
@@ -47,6 +47,7 @@ function Admin() {
   const _stats = useServerFn(storageStats);
   const _backfill = useServerFn(backfillThumbnails);
   const _autoPoster = useServerFn(autoPosterSweep);
+  const _tidyTitles = useServerFn(tidyTitlesSweep);
 
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [newCat, setNewCat] = useState("");
@@ -69,10 +70,13 @@ function Admin() {
   const runBackfill = async () => {
     setBackfilling(true); setBackfillMsg(null);
     try {
-      // 1) Look up real artwork by filename, 2) generate a poster for the rest.
+      // 1) Clean release-name titles, 2) look up real artwork, 3) generate a
+      // poster for whatever is still bare.
+      const tidy = await _tidyTitles({ data: { force: false } });
       const auto = await _autoPoster({ data: { force: false } });
       const r = await _backfill();
       const parts: string[] = [];
+      if (tidy.renamed > 0) parts.push(`Cleaned ${tidy.renamed} title${tidy.renamed === 1 ? "" : "s"}`);
       if (auto.matched > 0) parts.push(`Found artwork for ${auto.matched} title${auto.matched === 1 ? "" : "s"}`);
       if (r.generated > 0) parts.push(`generated ${r.generated} fallback poster${r.generated === 1 ? "" : "s"}`);
       if (!parts.length) parts.push(auto.scanned ? `Checked ${auto.scanned}, no match found` : "Everything already has a poster.");

@@ -19,7 +19,15 @@ export type ParsedTitle = { title: string; year: number | null; episode: string 
 
 export function parseTitleFromName(raw: string): ParsedTitle {
   let s = raw.replace(/\.[a-z0-9]{2,4}$/i, "");
-  s = s.replace(/^\s*(www\.[^\s._-]+)\s*[-_.]*/i, "");
+  // Tracker/site stamps: "www.Site.party - ", "[1TamilMV.com]", "Site.io_"
+  // Only strip a leading site stamp when it is unmistakable: bracketed, or
+  // www-prefixed, or using a tracker TLD. Bare ".in"/".me" would eat real
+  // titles like "Made.In.India".
+  const TLD = "com|net|org|io|to|tv|cc|ws|party|site|link|life|pro|xyz|club|online|day|unblockit|ag";
+  s = s.replace(new RegExp(`^\\s*[[({]\\s*(?:www\\.)?[a-z0-9-]+\\.[a-z]{2,10}\\s*[\\])}]\\s*[-_.:|]*\\s*`, "i"), "");
+  s = s.replace(new RegExp(`^\\s*(?:www\\.[a-z0-9-]+\\.[a-z]{2,10}|[a-z0-9-]+\\.(?:${TLD}))\\b\\s*[-_.:|]*\\s*`, "i"), "");
+
+
   s = s.replace(/[[\]{}()]/g, " ").replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
 
   const ep = s.match(/\bS(\d{1,2})\s?E(\d{1,3})\b/i);
@@ -30,20 +38,78 @@ export function parseTitleFromName(raw: string): ParsedTitle {
 
   const words = s.split(" ");
   const kept: string[] = [];
+  // Words that are noise inside a release tag but also perfectly normal words
+  // in a real title ("Made In India", "The Devil's Advocate 2"). They only end
+  // the title once some real words have been collected AND a hard tag follows,
+  // so they are simply skipped from the "stop" test here.
+  const AMBIGUOUS = new Set(["in", "me", "org", "com", "www", "1", "2", "5", "dual", "audio", "multi", "complete", "season", "dv", "mx", "hd", "sd"]);
   for (const w of words) {
     const clean = w.toLowerCase().replace(/[^a-z0-9-]/g, "");
     if (!clean) continue;
     if (/^(19\d{2}|20\d{2})$/.test(clean)) break;
     if (/^s\d{1,2}(e\d{1,3})?$/.test(clean)) break;
-    if (NOISE.has(clean)) break;
-    if (/^\d+(gb|mb)$/.test(clean)) break;
+    if (NOISE.has(clean) && !AMBIGUOUS.has(clean)) break;
+    if (/^\d+(\.\d+)?(gb|mb)$/.test(clean)) break;
+
     kept.push(w);
     if (kept.length >= 10) break;
   }
 
+  // Drop trailing junk that survived because it can be a real word ("... Dual",
+  // "... V2", "... Multi").
+  while (kept.length > 1) {
+    const last = kept[kept.length - 1]!.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (AMBIGUOUS.has(last) || /^v\d$/.test(last) || !last) kept.pop();
+    else break;
+  }
+
   const title = (kept.join(" ") || s).replace(/[-–—:]+$/g, "").trim();
+
   return { title, year, episode };
 }
+
+const SMALL_WORDS = new Set([
+  "and", "or", "of", "in", "on", "at", "to", "for", "from", "with", "vs", "de", "ka", "ki", "ke",
+]);
+
+/** Title-cases a cleaned title, keeping ALL-CAPS acronyms and roman numerals. */
+function titleCase(s: string) {
+  const words = s.split(/\s+/).filter(Boolean);
+  return words
+    .map((w, i) => {
+      const bare = w.replace(/[^A-Za-z0-9']/g, "");
+      if (/^(?:[IVXLC]+)$/.test(bare) && bare.length > 1) return w.toUpperCase();
+      if (/^[A-Z0-9]{2,4}$/.test(bare) && !/[a-z]/.test(bare)) return w;
+      const lower = w.toLowerCase();
+      if (i > 0 && i < words.length - 1 && SMALL_WORDS.has(lower.replace(/[^a-z]/g, ""))) return lower;
+      return lower.replace(/^[a-z]/, (c) => c.toUpperCase()).replace(/(['-])([a-z])/g, (_, p, c) => p + c.toUpperCase());
+    })
+    .join(" ");
+}
+
+/**
+ * Human-friendly display title from a release filename:
+ * "www.Site.com - Movie.Name.2024.1080p.WEB-DL.DDP5.1.x264-Grp.mkv"
+ *   -> "Movie Name (2024)"
+ * Series keep their episode marker: "Show Name (2023) S01E04".
+ */
+export function prettyTitle(raw: string): string {
+  const parsed = parseTitleFromName(raw);
+  let base = titleCase(parsed.title.replace(/\s{2,}/g, " ").trim());
+  if (!base || base.length < 2) base = raw.replace(/\.[a-z0-9]{2,4}$/i, "").trim();
+  const year = parsed.year ? ` (${parsed.year})` : "";
+  const ep = parsed.episode ? ` ${parsed.episode}` : "";
+  return `${base}${year}${ep}`.trim().slice(0, 200);
+}
+
+/** True when a title still looks like a raw release name worth rewriting. */
+export function looksLikeReleaseName(title: string): boolean {
+  const t = title.toLowerCase();
+  if (/\.(mkv|mp4|avi|m4v|mov|ts|webm)$/i.test(title)) return true;
+  if (/[._]{1,}/.test(title) && /\s/.test(title) === false) return true;
+  return /\b(web[- ]?dl|webrip|bluray|blu-ray|bdrip|hdrip|hdtv|remux|x264|x265|h\.?264|h\.?265|hevc|avc|ddp?5[\s.]?1|dd5[\s.]?1|aac2?[\s.]?0|ac3|eac3|dts(-hd)?|truehd|atmos|10bit|hdr10?|amzn|nf|netflix|hotstar|zee5|sonyliv|esubs?|msubs?|2160p|1080p|720p|480p|ds4k|dual audio|multi audio|proper|repack)\b/i.test(t);
+}
+
 
 type Candidate = { url: string; source: string; score: number };
 
@@ -74,38 +140,58 @@ async function tmdbLookup(p: ParsedTitle): Promise<Candidate | null> {
   return { url: `https://image.tmdb.org/t/p/w1280${path}`, source: "tmdb", score: 3 };
 }
 
+const SCRAPE_HEADERS = {
+  "user-agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36",
+  "accept-language": "en-US,en;q=0.9",
+  accept: "text/html",
+};
+
+async function html(url: string, timeoutMs = 8000): Promise<string | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, headers: SCRAPE_HEADERS });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
- * TMDB public search page — keyless. We only read the poster path that the
- * page already exposes on its CDN and re-request it at a high resolution.
+ * TMDB public pages — keyless. The search page gives us the title's detail
+ * page, and the detail page exposes the wide backdrop, which fits a 16:9 card
+ * far better than a portrait poster. Poster is the fallback.
  */
 async function tmdbScrapeLookup(p: ParsedTitle): Promise<Candidate | null> {
   const queries = [p.year ? `${p.title} y:${p.year}` : p.title, p.title];
   for (const query of queries) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    try {
-      const res = await fetch(`https://www.themoviedb.org/search?query=${encodeURIComponent(query)}`, {
-        signal: ctrl.signal,
-        headers: {
-          "user-agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36",
-          "accept-language": "en-US,en;q=0.9",
-          accept: "text/html",
-        },
-      });
-      if (!res.ok) continue;
-      const html = await res.text();
-      const match = html.match(/\/t\/p\/w\d+_and_h\d+_face\/([A-Za-z0-9]+\.(?:jpg|png))/);
-      if (!match) continue;
-      return { url: `https://image.tmdb.org/t/p/w780/${match[1]}`, source: "tmdb", score: 3 };
-    } catch {
-      /* try next query */
-    } finally {
-      clearTimeout(timer);
+    const page = await html(`https://www.themoviedb.org/search?query=${encodeURIComponent(query)}`);
+    if (!page) continue;
+
+    const link = page.match(/href="(\/(?:movie|tv)\/\d+[^"?#]*)"/);
+    if (link?.[1]) {
+      const detail = await html(`https://www.themoviedb.org${link[1]}`);
+      if (detail) {
+        const backdrop = detail.match(/\/t\/p\/w\d+_and_h\d+(?:_multi_faces|_face|_bestv2)?\/([A-Za-z0-9]+\.(?:jpg|png))"?[^>]*class="[^"]*backdrop/);
+        const wide =
+          backdrop?.[1] ??
+          detail.match(/image\.tmdb\.org\/t\/p\/w1920_and_h800_multi_faces\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
+        if (wide) return { url: `https://image.tmdb.org/t/p/w1280/${wide}`, source: "tmdb:backdrop", score: 4 };
+        const poster = detail.match(/\/t\/p\/w\d+_and_h\d+_bestv2\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
+        if (poster) return { url: `https://image.tmdb.org/t/p/w780/${poster}`, source: "tmdb:poster", score: 3 };
+      }
     }
+
+    const match = page.match(/\/t\/p\/w\d+_and_h\d+_face\/([A-Za-z0-9]+\.(?:jpg|png))/);
+    if (match) return { url: `https://image.tmdb.org/t/p/w780/${match[1]}`, source: "tmdb", score: 3 };
   }
   return null;
 }
+
 
 /** iTunes Search — keyless, global catalogue incl. Indian cinema. */
 async function itunesLookup(p: ParsedTitle): Promise<Candidate | null> {
