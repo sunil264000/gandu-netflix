@@ -60,21 +60,46 @@ async function uploadObject(bucket: "videos" | "thumbnails", path: string, blob:
 
 async function uploadChunkedVideo(file: File, basePath: string, onProgress?: (pct: number) => void, canceller?: Canceller) {
   const chunkCount = Math.ceil(file.size / VIDEO_CHUNK_SIZE);
+  const type = file.type || "application/octet-stream";
   let uploaded = 0;
+  let next = 0;
 
-  for (let index = 0; index < chunkCount; index += 1) {
-    if (canceller?.cancelled) throw new Error("Cancelled");
+  const putPart = async (index: number) => {
     const start = index * VIDEO_CHUNK_SIZE;
     const end = Math.min(file.size, start + VIDEO_CHUNK_SIZE);
     const partPath = `${basePath}.part-${String(index).padStart(6, "0")}`;
-    const chunk = file.slice(start, end, file.type || "application/octet-stream");
-    await uploadObject("videos", partPath, chunk, file.type || "application/octet-stream");
-    uploaded += chunk.size;
-    onProgress?.((uploaded / file.size) * 100);
-  }
+    const chunk = file.slice(start, end, type);
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < CHUNK_UPLOAD_RETRIES; attempt += 1) {
+      if (canceller?.cancelled) throw new Error("Cancelled");
+      try {
+        await uploadObject("videos", partPath, chunk, type);
+        uploaded += chunk.size;
+        onProgress?.((uploaded / file.size) * 100);
+        return;
+      } catch (e) {
+        lastErr = e;
+        await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+  };
+
+  // Saturate the link: many parts uploaded concurrently instead of one at a time.
+  const workers = Array.from({ length: Math.min(UPLOAD_PARALLEL, chunkCount) }, async () => {
+    for (;;) {
+      if (canceller?.cancelled) throw new Error("Cancelled");
+      const index = next;
+      next += 1;
+      if (index >= chunkCount) return;
+      await putPart(index);
+    }
+  });
+  await Promise.all(workers);
 
   return { chunkCount, chunkSizeBytes: VIDEO_CHUNK_SIZE };
 }
+
 
 type Job = {
   id: string;
