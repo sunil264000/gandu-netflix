@@ -380,6 +380,12 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       }
     };
 
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      activeStreams = Math.max(0, activeStreams - 1);
+    };
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         const pending = new Map<number, Promise<Response>>();
