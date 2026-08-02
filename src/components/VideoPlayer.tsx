@@ -21,6 +21,8 @@ type Props = {
   audioLabel?: string | null;
   /** .m3u handoff for desktop players (original audio, no re-encode). */
   playlistUrl?: string | null;
+  /** Fired once when the original soundtrack turns out to be undecodable. */
+  onNoAudio?: () => void;
 };
 
 function fmt(t: number) {
