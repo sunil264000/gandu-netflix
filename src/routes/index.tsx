@@ -159,12 +159,13 @@ function Home() {
       ) : (
         <>
           {hero ? <Hero v={hero} /> : null}
-          <VideoRow title="Continue Watching" videos={continueW.data ?? []} />
-          <VideoRow title="Recently Added" videos={recent.data ?? []} />
-          <VideoRow title="Most Watched" videos={popular.data ?? []} />
-          <VideoRow title="Favorites" videos={favs.data ?? []} />
+          <VideoRow title="Continue Watching" videos={dedupe(continueW.data)} />
+          <VideoRow title="Recently Added" videos={dedupe(recent.data)} />
+          <VideoRow title="Most Watched" videos={dedupe(popular.data)} />
+          <VideoRow title="Favorites" videos={dedupe(favs.data)} />
         </>
       )}
+
     </Page>
   );
 }
