@@ -616,14 +616,16 @@ function transitionOverlay(ctx: CanvasRenderingContext2D, kind: TransitionId, p:
     ctx.restore();
   } else if (kind === "glitch") {
     ctx.save();
+    const q = Math.round(clamp01(p) * 24); // quantised so tears hold for a frame or two
     for (let i = 0; i < 7; i++) {
-      const y = Math.random() * H;
-      const h = 6 + Math.random() * 26;
-      ctx.globalAlpha = 0.18 + Math.random() * 0.25;
+      const y = noise(q, i) * H;
+      const h = 6 + noise(q, i + 40) * 26;
+      ctx.globalAlpha = (0.18 + noise(q, i + 80) * 0.25) * Math.sin(clamp01(p) * Math.PI);
       ctx.fillStyle = i % 2 ? accent : "#00e5ff";
       ctx.fillRect(0, y, W, h);
     }
     ctx.restore();
+
   } else if (kind === "whip") {
     ctx.save();
     ctx.globalAlpha = Math.sin(clamp01(p) * Math.PI) * 0.35;
