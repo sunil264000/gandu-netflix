@@ -79,12 +79,9 @@ function Library() {
           <p className="mt-1 text-sm text-white/40">Try a different category or upload something new.</p>
         </div>
       ) : (
-        <div className={gridCls}>
-          {(list.data ?? []).map((v, i) => (
-            <VideoCard key={v.id} v={v} index={i} />
-          ))}
-        </div>
+        <VideoGrid videos={list.data ?? []} />
       )}
+
     </Page>
   );
 }
