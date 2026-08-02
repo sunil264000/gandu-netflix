@@ -1,0 +1,15 @@
+update public.videos set title = 'Made in India A Titan Story S01E06' where id = '2064fad7-1fbb-4d6c-a4af-cda36749e788';
+update public.videos set title = 'Made in India A Titan Story S01E04' where id = '44a0202b-b8ce-4d3e-a0a2-f640bcf2ddad';
+update public.videos set title = 'Made in India A Titan Story S01E05' where id = 'ad5a4d31-8832-491e-9d5e-6889565d43ee';
+update public.videos set title = 'Made in India A Titan Story S01E03' where id = '3a9d1733-a1ec-4507-bbb7-2fa79b353494';
+update public.videos set title = 'Made in India A Titan Story S01E01' where id = '0def5502-561b-4208-b2fd-1b4669c39f11';
+update public.videos set title = 'Made in India A Titan Story S01E02' where id = 'f52fc580-d3b7-49f4-90c2-ec263eef5759';
+update public.videos set title = 'Hai Jawani Toh Ishq Hona Hai (2026)' where id = 'f47e5123-e06a-451d-90b7-06735c3a14aa';
+update public.videos set title = 'Hai Jawani Toh Ishq Hona Hai (2026)' where id = '3d2bff1c-c914-41aa-ad03-62fe18c1d7fd';
+update public.videos set title = 'Secret Superstar (2017)' where id = '0ae3b55d-2d65-48e2-9aad-ffdc2f41194d';
+update public.videos set title = 'Insidious The Red Door (2023)' where id = 'fe445f58-3501-4f5c-9be1-5fa7552e3104';
+update public.videos set title = 'Insidious The Last Key (2018)' where id = '126a91f6-5cf1-4767-a02f-241d2e9f8e36';
+update public.videos set title = 'Dhurandhar The Revenge (2026)' where id = '21b1d395-c371-40e1-a44c-bd5eb1aa98f3';
+update public.videos set title = 'Dhurandhar (2025)' where id = 'eb06870a-f1e2-42c1-8d4a-80b583616a05';
+update public.videos set title = 'The Conjuring Last Rites (2025)' where id = 'e8798672-6947-4328-a2d7-627801591e0b';
+update public.videos set title = 'Mission Mangal (2019)' where id = '0aa25a2e-3991-4995-b659-b21e4ba1fbc4';
