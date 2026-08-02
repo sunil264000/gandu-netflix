@@ -113,6 +113,56 @@ export function looksLikeReleaseName(title: string): boolean {
 
 type Candidate = { url: string; source: string; score: number };
 
+/**
+ * Reads the real pixel size straight out of the image header (first 64 KB) so
+ * we can reject anything that isn't a wide still. Providers lie about crops,
+ * measuring is the only reliable filter.
+ */
+async function imageSize(url: string): Promise<{ w: number; h: number } | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, headers: { range: "bytes=0-65535", accept: "image/*" } });
+    if (!res.ok) return null;
+    const b = new Uint8Array(await res.arrayBuffer());
+
+    // PNG: IHDR is always the first chunk.
+    if (b[0] === 0x89 && b[1] === 0x50) {
+      const dv = new DataView(b.buffer, b.byteOffset);
+      return { w: dv.getUint32(16), h: dv.getUint32(20) };
+    }
+    // JPEG: walk the marker chain to the frame header.
+    if (b[0] === 0xff && b[1] === 0xd8) {
+      let i = 2;
+      while (i + 9 < b.length) {
+        if (b[i] !== 0xff) { i++; continue; }
+        const marker = b[i + 1]!;
+        const len = (b[i + 2]! << 8) | b[i + 3]!;
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { h: (b[i + 5]! << 8) | b[i + 6]!, w: (b[i + 7]! << 8) | b[i + 8]! };
+        }
+        i += 2 + len;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** A card image must be a genuine wide still — never a portrait poster. */
+const WIDE_MIN = 1.55;
+const MIN_WIDTH = 780;
+
+async function isWideEnough(url: string): Promise<boolean> {
+  const size = await imageSize(url);
+  if (!size || !size.w || !size.h) return false;
+  return size.w / size.h >= WIDE_MIN && size.w >= MIN_WIDTH;
+}
+
+
 async function j(url: string, timeoutMs = 7000): Promise<any | null> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
