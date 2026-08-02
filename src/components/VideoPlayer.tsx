@@ -299,7 +299,7 @@ export function VideoPlayer({
       v.removeEventListener("playing", onCanPlay);
       v.removeEventListener("ratechange", onRate);
     };
-  }, [startAt, onProgress, onEnded, kickHide, audioSrc]);
+  }, [startAt, onProgress, onEnded, kickHide, audioSrc, onNoAudio]);
 
   useEffect(() => {
     const onFs = () => setFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
