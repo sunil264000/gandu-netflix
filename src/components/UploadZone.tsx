@@ -323,13 +323,26 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       remote({ status: "done", message: "Uploaded", progress: 100, force: true });
       onDone();
 
+      // Real artwork beats a frame grab: look the title up against the poster
+      // providers right after the record exists, then refresh the grid.
+      if (created?.id) {
+        void _poster({ data: { videoId: created.id } })
+          .then(() => { onDone(); qc.invalidateQueries({ queryKey: ["admin:videos"] }); })
+          .catch(() => {});
+      }
+
       // ---- Automatic browser-side audio rescue -------------------------------
-      // Release rips (MKV/M2TS) usually carry DTS / TrueHD / E-AC3, which no
-      // browser can decode. While we still hold the local file, convert its
-      // soundtrack to AAC with WebAssembly ffmpeg and attach it as a companion
-      // track — exactly what Netflix does, just done client-side.
-      const autoAac =
-        likelyNeedsCompatibleAudio(file.name) || !/\.(mp4|m4v|webm)$/i.test(file.name);
+      // Release rips (MKV/M2TS) usually carry DTS / TrueHD / E-AC3 / 5.1 PCM,
+      // which no browser can decode. While we still hold the local file, convert
+      // its soundtrack to AAC with WebAssembly ffmpeg and attach it as a
+      // companion track — exactly what Netflix does, just done client-side.
+      // The filename heuristic is only a shortcut; anything it doesn't catch is
+      // decided by actually trying to decode the audio in this browser.
+      let autoAac = likelyNeedsCompatibleAudio(file.name) || !/\.(mp4|m4v|webm)$/i.test(file.name);
+      if (!autoAac) {
+        updateJob(job.id, { status: "audio", message: "Checking audio compatibility…" });
+        autoAac = !(await audioDecodesInBrowser(file));
+      }
       if (created?.id && transcodeSupported() && autoAac) {
         try {
           updateJob(job.id, { status: "audio", message: "Preparing browser audio…", progress: 0 });
