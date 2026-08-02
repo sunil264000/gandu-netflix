@@ -328,7 +328,9 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       // browser can decode. While we still hold the local file, convert its
       // soundtrack to AAC with WebAssembly ffmpeg and attach it as a companion
       // track — exactly what Netflix does, just done client-side.
-      if (created?.id && transcodeSupported() && likelyNeedsCompatibleAudio(file.name)) {
+      const autoAac =
+        likelyNeedsCompatibleAudio(file.name) || !/\.(mp4|m4v|webm)$/i.test(file.name);
+      if (created?.id && transcodeSupported() && autoAac) {
         try {
           updateJob(job.id, { status: "audio", message: "Preparing browser audio…", progress: 0 });
           const res = await extractCompatibleAudio(file, {
