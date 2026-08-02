@@ -95,7 +95,10 @@ function StudioPage() {
 
 
   const paint = useCallback(
-    (t: number) => {
+    // `settled` paints the line fully composed — used while paused/scrubbing so
+    // the editor never shows a half-revealed caption.
+    (t: number, settled = false) => {
+
       const c = canvasRef.current;
       if (!c) return;
       const ctx = c.getContext("2d");
