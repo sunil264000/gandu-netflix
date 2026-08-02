@@ -328,8 +328,9 @@ function drawCaption(
 
     for (const word of line.words) {
       const appear = word.i * perWord;
-      const p = clamp01((local - appear) / 0.34);
+      const p = settled ? 1 : clamp01((local - appear) / 0.34);
       if (p <= 0 && tpl.anim !== "karaoke" && tpl.anim !== "type") continue;
+
 
       let alpha = groupAlpha;
       let dx = 0;
