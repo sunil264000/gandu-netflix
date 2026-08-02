@@ -246,8 +246,11 @@ export const createVideoRecord = createServerFn({ method: "POST" })
   }).parse(i))
   .handler(async ({ data }) => {
     const sb = await admin();
+    const { prettyTitle, looksLikeReleaseName } = await import("@/lib/poster.server");
+    // Uploads arrive named after the release file; store a clean display title.
+    const cleanTitle = looksLikeReleaseName(data.title) ? prettyTitle(data.title) : data.title;
     const { data: row, error } = await sb.from("videos").insert({
-      title: data.title, description: data.description ?? null,
+      title: cleanTitle, description: data.description ?? null,
       storage_path: data.storagePath, thumbnail_path: data.thumbnailPath ?? null,
       size_bytes: data.sizeBytes, mime_type: data.mimeType ?? null, extension: data.extension ?? null,
       duration_sec: data.durationSec ?? null, width: data.width ?? null, height: data.height ?? null,
@@ -257,6 +260,7 @@ export const createVideoRecord = createServerFn({ method: "POST" })
       chunk_count: data.uploadMode === "chunked" ? data.chunkCount ?? null : null,
     }).select("id").single();
     if (error) throw error;
+
 
     // Automatic artwork: derive the real title from the filename and pull a
     // poster from public artwork providers. Best-effort, never blocks upload.

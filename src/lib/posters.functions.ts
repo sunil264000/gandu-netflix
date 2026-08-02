@@ -65,3 +65,31 @@ export const autoPosterSweep = createServerFn({ method: "POST" })
     }
     return { scanned: targets.length, matched, missed: failures.slice(0, 8) };
   });
+
+/**
+ * Rewrites raw release filenames stored as titles into clean display titles:
+ * "Movie.Name.2024.1080p.WEB-DL.DDP5.1.x265-Grp" -> "Movie Name (2024)".
+ */
+export const tidyTitlesSweep = createServerFn({ method: "POST" })
+  .inputValidator((i?: { force?: boolean }) => z.object({ force: z.boolean().default(false) }).parse(i ?? {}))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { prettyTitle, looksLikeReleaseName } = await import("@/lib/poster.server");
+    const { data: rows, error } = await supabaseAdmin
+      .from("videos")
+      .select("id,title")
+      .order("created_at", { ascending: false })
+      .limit(300);
+    if (error) throw error;
+
+    let renamed = 0;
+    for (const row of rows ?? []) {
+      if (!data.force && !looksLikeReleaseName(row.title)) continue;
+      const next = prettyTitle(row.title);
+      if (!next || next === row.title) continue;
+      const { error: upErr } = await supabaseAdmin.from("videos").update({ title: next }).eq("id", row.id);
+      if (!upErr) renamed += 1;
+    }
+    return { scanned: (rows ?? []).length, renamed };
+  });
+

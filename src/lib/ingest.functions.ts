@@ -123,7 +123,10 @@ export const startUrlIngest = createServerFn({ method: "POST" })
 
     const fileName = safeName(nameFromUrl(data.url, info.disp));
     const ext = fileName.split(".").pop()?.toLowerCase() ?? "mp4";
-    const title = data.title?.trim() || fileName.replace(/\.[^.]+$/, "");
+    const { prettyTitle } = await import("@/lib/poster.server");
+    // Imported links are release names; show a clean title in the library.
+    const title = data.title?.trim() || prettyTitle(fileName);
+
     const chunkCount = Math.ceil(info.size / CHUNK_SIZE);
     const storagePath = `ingest/${crypto.randomUUID()}/${storageSafe(fileName)}`;
 
