@@ -79,7 +79,7 @@ function StudioPage() {
   const total = useMemo(() => timeline(scaled).total, [scaled]);
 
   const state = useCallback(
-    (): ReelState => ({
+    (opts: { settled?: boolean } = {}): ReelState => ({
       template,
       scenes: scaled,
       media,
@@ -88,9 +88,11 @@ function StudioPage() {
       accent,
       showProgress,
       level: levelRef.current,
+      settled: opts.settled,
     }),
     [template, scaled, media, handle, badge, accent, showProgress],
   );
+
 
   const paint = useCallback(
     (t: number) => {
