@@ -22,8 +22,9 @@ export function SmartThumb({
 
   if (!src || failed) return <>{fallback ?? null}</>;
 
-  // 16:9 = 1.78. Treat anything reasonably wide as a true backdrop.
-  const isWide = ratio === null || ratio >= 1.6;
+  // Do not assume an unloaded image is wide: starting in contain mode avoids a
+  // visible crop flash for portrait posters while intrinsic dimensions load.
+  const isWide = ratio !== null && ratio >= 1.6;
 
   return (
     <div className={`relative h-full w-full overflow-hidden ${className}`}>

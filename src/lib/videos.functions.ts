@@ -262,15 +262,14 @@ export const createVideoRecord = createServerFn({ method: "POST" })
     if (error) throw error;
 
 
-    // Automatic artwork: derive the real title from the filename and pull a
-    // poster from public artwork providers. Best-effort, never blocks upload.
-    if (!data.thumbnailPath) {
-      try {
-        const { autoPoster } = await import("@/lib/poster.server");
-        const name = data.storagePath.split("/").pop() || data.title;
-        await autoPoster(sb, row.id, name);
-      } catch { /* fallback poster generation covers this */ }
-    }
+    // A frame-grab is useful as an immediate placeholder, but it is not final
+    // library artwork. Always try to replace it with title-matched artwork.
+    // Use the original upload name: storage paths are usually UUIDs and cannot
+    // produce a meaningful catalogue search.
+    try {
+      const { autoPoster } = await import("@/lib/poster.server");
+      await autoPoster(sb, row.id, data.title);
+    } catch { /* keep the uploaded frame when no catalogue match is available */ }
 
     return { id: row.id };
   });
