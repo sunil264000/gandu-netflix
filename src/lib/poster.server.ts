@@ -249,7 +249,7 @@ async function tmdbScrapeLookup(p: ParsedTitle): Promise<Candidate[]> {
 
     const gallery = await html(`https://www.themoviedb.org${base}/images/backdrops`);
     if (gallery) {
-      const files = [...gallery.matchAll(/image\.tmdb\.org\/t\/p\/w\d+_and_h\d+[a-z_]*\/([A-Za-z0-9]+\.(?:jpg|png))/g)]
+      const files = [...gallery.matchAll(/image\.tmdb\.org\/t\/p\/(?:original|w\d+(?:_and_h\d+)?[a-z_0-9]*)\/([A-Za-z0-9]+\.(?:jpg|png))/g)]
         .map((m) => m[1]!)
         .filter((f, i, a) => a.indexOf(f) === i)
         .slice(0, 6);
