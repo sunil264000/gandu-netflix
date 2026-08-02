@@ -17,7 +17,6 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WatchSlugRouteImport } from './routes/watch.$slug'
-import { Route as ApiPublicPosterdebugRouteImport } from './routes/api/public/posterdebug'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
 import { Route as ApiPublicVideosStreamRouteImport } from './routes/api/public/videos/stream'
 import { Route as ApiPublicVideosPlaylistRouteImport } from './routes/api/public/videos/playlist'
@@ -66,11 +65,6 @@ const WatchSlugRoute = WatchSlugRouteImport.update({
   path: '/watch/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicPosterdebugRoute = ApiPublicPosterdebugRouteImport.update({
-  id: '/api/public/posterdebug',
-  path: '/api/public/posterdebug',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiPublicHealthRoute = ApiPublicHealthRouteImport.update({
   id: '/api/public/health',
   path: '/api/public/health',
@@ -117,7 +111,6 @@ export interface FileRoutesByFullPath {
   '/uploads': typeof UploadsRoute
   '/watch/$slug': typeof WatchSlugRoute
   '/api/public/health': typeof ApiPublicHealthRoute
-  '/api/public/posterdebug': typeof ApiPublicPosterdebugRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -135,7 +128,6 @@ export interface FileRoutesByTo {
   '/uploads': typeof UploadsRoute
   '/watch/$slug': typeof WatchSlugRoute
   '/api/public/health': typeof ApiPublicHealthRoute
-  '/api/public/posterdebug': typeof ApiPublicPosterdebugRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -154,7 +146,6 @@ export interface FileRoutesById {
   '/uploads': typeof UploadsRoute
   '/watch/$slug': typeof WatchSlugRoute
   '/api/public/health': typeof ApiPublicHealthRoute
-  '/api/public/posterdebug': typeof ApiPublicPosterdebugRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -174,7 +165,6 @@ export interface FileRouteTypes {
     | '/uploads'
     | '/watch/$slug'
     | '/api/public/health'
-    | '/api/public/posterdebug'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -192,7 +182,6 @@ export interface FileRouteTypes {
     | '/uploads'
     | '/watch/$slug'
     | '/api/public/health'
-    | '/api/public/posterdebug'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -210,7 +199,6 @@ export interface FileRouteTypes {
     | '/uploads'
     | '/watch/$slug'
     | '/api/public/health'
-    | '/api/public/posterdebug'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -229,7 +217,6 @@ export interface RootRouteChildren {
   UploadsRoute: typeof UploadsRoute
   WatchSlugRoute: typeof WatchSlugRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
-  ApiPublicPosterdebugRoute: typeof ApiPublicPosterdebugRoute
   ApiPublicExtActivateRoute: typeof ApiPublicExtActivateRoute
   ApiPublicExtExecRoute: typeof ApiPublicExtExecRoute
   ApiPublicExtHeartbeatRoute: typeof ApiPublicExtHeartbeatRoute
@@ -296,13 +283,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WatchSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/posterdebug': {
-      id: '/api/public/posterdebug'
-      path: '/api/public/posterdebug'
-      fullPath: '/api/public/posterdebug'
-      preLoaderRoute: typeof ApiPublicPosterdebugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/public/health': {
       id: '/api/public/health'
       path: '/api/public/health'
@@ -365,7 +345,6 @@ const rootRouteChildren: RootRouteChildren = {
   UploadsRoute: UploadsRoute,
   WatchSlugRoute: WatchSlugRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
-  ApiPublicPosterdebugRoute: ApiPublicPosterdebugRoute,
   ApiPublicExtActivateRoute: ApiPublicExtActivateRoute,
   ApiPublicExtExecRoute: ApiPublicExtExecRoute,
   ApiPublicExtHeartbeatRoute: ApiPublicExtHeartbeatRoute,
