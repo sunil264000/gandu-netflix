@@ -420,11 +420,11 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
           log("error", "stream.chunk_failed", { reqId, id, err: errShape(streamError) });
           controller.error(streamError);
         } finally {
-          activeStreams = Math.max(0, activeStreams - 1);
+          release();
         }
       },
       cancel() {
-        activeStreams = Math.max(0, activeStreams - 1);
+        release();
       },
     });
 
