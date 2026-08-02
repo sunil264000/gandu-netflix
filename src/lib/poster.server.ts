@@ -127,7 +127,11 @@ async function j(url: string, timeoutMs = 7000): Promise<any | null> {
   }
 }
 
-/** TMDB (used when a TMDB_API_KEY secret exists) — best quality metadata. */
+/**
+ * TMDB API (used when a TMDB_API_KEY secret exists) — best quality metadata.
+ * Pulls the full backdrop gallery and picks the highest-rated true 16:9 still
+ * at original resolution, so cards never get a cropped portrait poster.
+ */
 async function tmdbLookup(p: ParsedTitle): Promise<Candidate | null> {
   const key = process.env["TMDB_API_KEY"];
   if (!key) return null;
@@ -136,9 +140,26 @@ async function tmdbLookup(p: ParsedTitle): Promise<Candidate | null> {
   const data = await j(`https://api.themoviedb.org/3/search/multi?api_key=${key}&query=${q}${yr}&include_adult=false`);
   const hit = (data?.results ?? []).find((r: any) => r.poster_path || r.backdrop_path);
   if (!hit) return null;
-  const path = hit.backdrop_path ?? hit.poster_path;
-  return { url: `https://image.tmdb.org/t/p/w1280${path}`, source: "tmdb", score: 3 };
+
+  const kind = hit.media_type === "tv" || hit.first_air_date ? "tv" : "movie";
+  const images = await j(
+    `https://api.themoviedb.org/3/${kind}/${hit.id}/images?api_key=${key}&include_image_language=en,null`,
+  );
+  const wide: any[] = (images?.backdrops ?? []).filter(
+    (b: any) => typeof b.aspect_ratio === "number" && b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85,
+  );
+  if (wide.length) {
+    wide.sort(
+      (a, b) => b.vote_average - a.vote_average || b.width - a.width,
+    );
+    return { url: `https://image.tmdb.org/t/p/original${wide[0].file_path}`, source: "tmdb:backdrop", score: 5 };
+  }
+  if (hit.backdrop_path) {
+    return { url: `https://image.tmdb.org/t/p/original${hit.backdrop_path}`, source: "tmdb:backdrop", score: 4 };
+  }
+  return { url: `https://image.tmdb.org/t/p/w780${hit.poster_path}`, source: "tmdb:poster", score: 2 };
 }
+
 
 const SCRAPE_HEADERS = {
   "user-agent":
@@ -174,17 +195,32 @@ async function tmdbScrapeLookup(p: ParsedTitle): Promise<Candidate | null> {
 
     const link = page.match(/href="(\/(?:movie|tv)\/\d+[^"?#]*)"/);
     if (link?.[1]) {
-      const detail = await html(`https://www.themoviedb.org${link[1]}`);
+      const base = link[1].split("?")[0];
+
+      // The backdrops gallery lists every wide still the community uploaded —
+      // these are always true 16:9 and far sharper than the header crop.
+      const gallery = await html(`https://www.themoviedb.org${base}/images/backdrops`);
+      if (gallery) {
+        const files = [...gallery.matchAll(/image\.tmdb\.org\/t\/p\/w\d+_and_h\d+[a-z_]*\/([A-Za-z0-9]+\.(?:jpg|png))/g)]
+          .map((m) => m[1])
+          .filter((f, i, a) => a.indexOf(f) === i);
+        if (files[0]) {
+          return { url: `https://image.tmdb.org/t/p/original/${files[0]}`, source: "tmdb:backdrop", score: 5 };
+        }
+      }
+
+      const detail = await html(`https://www.themoviedb.org${base}`);
       if (detail) {
         const backdrop = detail.match(/\/t\/p\/w\d+_and_h\d+(?:_multi_faces|_face|_bestv2)?\/([A-Za-z0-9]+\.(?:jpg|png))"?[^>]*class="[^"]*backdrop/);
         const wide =
           backdrop?.[1] ??
           detail.match(/image\.tmdb\.org\/t\/p\/w1920_and_h800_multi_faces\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
-        if (wide) return { url: `https://image.tmdb.org/t/p/w1280/${wide}`, source: "tmdb:backdrop", score: 4 };
+        if (wide) return { url: `https://image.tmdb.org/t/p/original/${wide}`, source: "tmdb:backdrop", score: 4 };
         const poster = detail.match(/\/t\/p\/w\d+_and_h\d+_bestv2\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
         if (poster) return { url: `https://image.tmdb.org/t/p/w780/${poster}`, source: "tmdb:poster", score: 3 };
       }
     }
+
 
     const match = page.match(/\/t\/p\/w\d+_and_h\d+_face\/([A-Za-z0-9]+\.(?:jpg|png))/);
     if (match) return { url: `https://image.tmdb.org/t/p/w780/${match[1]}`, source: "tmdb", score: 3 };
@@ -236,15 +272,20 @@ export async function findPosterUrl(filenameOrTitle: string): Promise<{ url: str
   if (!parsed.title || parsed.title.length < 2) return null;
 
   const providers = [tmdbLookup, tmdbScrapeLookup, itunesLookup, wikipediaLookup];
+  let best: Candidate | null = null;
   for (const provider of providers) {
     try {
       const hit = await provider(parsed);
-      if (hit) return { url: hit.url, source: hit.source, query: parsed.title };
+      if (hit && (!best || hit.score > best.score)) best = hit;
+      // score >= 4 means a true wide 16:9 still — good enough, stop early.
+      if (best && best.score >= 4) break;
     } catch {
       /* try next provider */
     }
   }
+  if (best) return { url: best.url, source: best.source, query: parsed.title };
   return null;
+
 }
 
 /** Downloads the artwork and stores it in the thumbnails bucket. */
