@@ -1,13 +1,15 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Search, Home, Library, Shield, Film, Activity, Menu, X } from "lucide-react";
+import { Search, Home, Library, Shield, Film, Activity, Menu, X, Sparkles } from "lucide-react";
 
 const NAV = [
   { to: "/", label: "Home", icon: Home },
   { to: "/library", label: "Library", icon: Library },
+  { to: "/studio", label: "Studio", icon: Sparkles },
   { to: "/uploads", label: "Uploads", icon: Activity },
   { to: "/admin", label: "Admin", icon: Shield },
 ] as const;
+
 
 export function AppHeader() {
   const nav = useNavigate();

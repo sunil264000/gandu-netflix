@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UploadsRouteImport } from './routes/uploads'
+import { Route as StudioRouteImport } from './routes/studio'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -27,6 +28,11 @@ import { Route as ApiPublicExtActivateRouteImport } from './routes/api/public/ex
 const UploadsRoute = UploadsRouteImport.update({
   id: '/uploads',
   path: '/uploads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudioRoute = StudioRouteImport.update({
+  id: '/studio',
+  path: '/studio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SearchRoute = SearchRouteImport.update({
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/library': typeof LibraryRoute
   '/search': typeof SearchRoute
+  '/studio': typeof StudioRoute
   '/uploads': typeof UploadsRoute
   '/watch/$slug': typeof WatchSlugRoute
   '/api/public/health': typeof ApiPublicHealthRoute
@@ -117,6 +124,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/library': typeof LibraryRoute
   '/search': typeof SearchRoute
+  '/studio': typeof StudioRoute
   '/uploads': typeof UploadsRoute
   '/watch/$slug': typeof WatchSlugRoute
   '/api/public/health': typeof ApiPublicHealthRoute
@@ -134,6 +142,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/library': typeof LibraryRoute
   '/search': typeof SearchRoute
+  '/studio': typeof StudioRoute
   '/uploads': typeof UploadsRoute
   '/watch/$slug': typeof WatchSlugRoute
   '/api/public/health': typeof ApiPublicHealthRoute
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/library'
     | '/search'
+    | '/studio'
     | '/uploads'
     | '/watch/$slug'
     | '/api/public/health'
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/library'
     | '/search'
+    | '/studio'
     | '/uploads'
     | '/watch/$slug'
     | '/api/public/health'
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/library'
     | '/search'
+    | '/studio'
     | '/uploads'
     | '/watch/$slug'
     | '/api/public/health'
@@ -201,6 +213,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   LibraryRoute: typeof LibraryRoute
   SearchRoute: typeof SearchRoute
+  StudioRoute: typeof StudioRoute
   UploadsRoute: typeof UploadsRoute
   WatchSlugRoute: typeof WatchSlugRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
@@ -219,6 +232,13 @@ declare module '@tanstack/react-router' {
       path: '/uploads'
       fullPath: '/uploads'
       preLoaderRoute: typeof UploadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/studio': {
+      id: '/studio'
+      path: '/studio'
+      fullPath: '/studio'
+      preLoaderRoute: typeof StudioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/search': {
@@ -321,6 +341,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   LibraryRoute: LibraryRoute,
   SearchRoute: SearchRoute,
+  StudioRoute: StudioRoute,
   UploadsRoute: UploadsRoute,
   WatchSlugRoute: WatchSlugRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
