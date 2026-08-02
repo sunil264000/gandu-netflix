@@ -223,14 +223,23 @@ function drawCaption(
   s: ReelState,
   item: Timed,
   t: number,
-  // `plain` skips the built-in fade in/out because a scene transition is
-  // already handling the blend for this frame.
-  opts: { plain?: boolean } = {},
+  opts: {
+    // `plain` skips the built-in fade in/out because a scene transition is
+    // already handling the blend for this frame.
+    plain?: boolean;
+    // Length of the incoming transition. The word-by-word reveal is warped to
+    // finish exactly when the cut lands, so the transition always carries a
+    // fully composed line instead of an empty layer.
+    transIn?: number;
+    // The next scene cuts with a real transition, so don't fade this one out —
+    // the transition owns the blend.
+    holdOut?: boolean;
+  } = {},
 ) {
   const tpl = s.template;
   // Small head start so the very first frame of a scene is already legible
   // rather than a blank fade-in — matters for the paused preview and thumbnails.
-  const local = t - item.start + 0.07;
+  let local = t - item.start + 0.07;
 
   const dur = item.end - item.start;
   const text = tpl.uppercase ? item.text.toUpperCase() : item.text;
@@ -255,9 +264,20 @@ function drawCaption(
 
   const total = lines.reduce((n, l) => n + l.words.length, 0);
   const perWord = Math.min(0.13, (dur * 0.55) / Math.max(1, total));
+
+  // Warp the reveal clock into the transition window (monotonic, so nothing
+  // ever pops back out once it has appeared).
+  const tIn = opts.transIn ?? 0;
+  if (tIn > 0.01) {
+    const span = perWord * Math.max(0, total - 1) + 0.34;
+    const raw = t - item.start;
+    local = raw < tIn ? (raw / tIn) * span + 0.07 : span + (raw - tIn) + 0.07;
+  }
+
   const inFade = clamp01(local / 0.22);
-  const outFade = clamp01((item.end - t) / 0.28);
+  const outFade = opts.holdOut ? 1 : clamp01((item.end - t) / 0.28);
   const groupAlpha = opts.plain ? 1 : Math.min(inFade, outFade);
+
 
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
