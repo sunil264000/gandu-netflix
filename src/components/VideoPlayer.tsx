@@ -125,6 +125,7 @@ export function VideoPlayer({
   const lastSnap = useRef(0);
   const lastReport = useRef(0);
   const lastTap = useRef<{ t: number; side: "l" | "r" | null }>({ t: 0, side: null });
+  const noAudioFired = useRef(false);
   const SNAP_BUCKET = 2; // seconds per cached snapshot
 
 
