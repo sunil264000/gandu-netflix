@@ -7,6 +7,35 @@
 export type Anim = "wordPop" | "karaoke" | "slideUp" | "fade" | "type";
 export type Backdrop = "mesh" | "beam" | "split" | "paper" | "noir" | "grid";
 
+/** Scene-to-scene transitions. `auto` follows the template's house style. */
+export type TransitionId =
+  | "auto"
+  | "cut"
+  | "fade"
+  | "slideUp"
+  | "whip"
+  | "punch"
+  | "flash"
+  | "glitch"
+  | "blinds"
+  | "clock"
+  | "swipe";
+
+export const TRANSITIONS: { id: TransitionId; name: string }[] = [
+  { id: "auto", name: "Auto" },
+  { id: "cut", name: "Hard cut" },
+  { id: "fade", name: "Cross fade" },
+  { id: "slideUp", name: "Push up" },
+  { id: "whip", name: "Whip pan" },
+  { id: "punch", name: "Zoom punch" },
+  { id: "flash", name: "Flash" },
+  { id: "glitch", name: "Glitch" },
+  { id: "blinds", name: "Blinds" },
+  { id: "clock", name: "Clock wipe" },
+  { id: "swipe", name: "Colour swipe" },
+];
+
+
 export type Template = {
   id: string;
   name: string;
