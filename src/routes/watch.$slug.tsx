@@ -201,6 +201,16 @@ function Watch() {
                     />
                   )}
                 </div>
+                {aac && (
+                  <div className="mt-2 rounded-lg border border-red-500/30 bg-zinc-900/70 px-3 py-2">
+                    <p className="text-[11px] font-semibold text-white">
+                      {aac.stage} — building a browser-compatible AAC track automatically
+                    </p>
+                    <div className="mt-1.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="h-full bg-red-500 transition-all" style={{ width: `${Math.max(2, aac.pct)}%` }} />
+                    </div>
+                  </div>
+                )}
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <div className="flex items-start gap-2 text-[11px] text-zinc-400 bg-zinc-900/60 border border-white/5 rounded-lg px-3 py-2">
                     <Headphones className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-400" />
