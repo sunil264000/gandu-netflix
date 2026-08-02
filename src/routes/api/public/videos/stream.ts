@@ -341,9 +341,8 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       if (!edgeCache) return;
       for (let p = from; p < Math.min(from + PREWARM_CACHE_PARTS, chunkCount); p += 1) {
         const partPath = `${video.storage_path}.part-${String(p).padStart(6, "0")}`;
-        const key = new Request(
-          `https://vault.stream.internal/${encodeURIComponent(partPath)}?s=0&e=${chunkSize - 1}`,
-        );
+        const key = wholeKeyFor(partPath);
+        const partBytes = Math.min(chunkSize, total - p * chunkSize);
         void (async () => {
           try {
             if (await edgeCache.match(key)) return;
@@ -351,16 +350,11 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
             if (!signed) return;
             const res = await fetchWithTimeout(
               signed,
-              { headers: { range: `bytes=0-${chunkSize - 1}` } },
+              { headers: { range: `bytes=0-${partBytes - 1}` } },
               CHUNK_FETCH_TIMEOUT_MS,
             );
             if (!res.body) return;
-            await edgeCache.put(
-              key,
-              new Response(res.body, {
-                headers: { "cache-control": "public, max-age=604800", "content-type": "application/octet-stream" },
-              }),
-            );
+            await edgeCache.put(key, new Response(res.body, { headers: cacheHeaders }));
           } catch {
             /* best effort */
           }
