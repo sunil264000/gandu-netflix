@@ -286,9 +286,22 @@ function Watch() {
 
               <div className="space-y-4 sm:space-y-6">
                 <div className="flex flex-col gap-3">
+                  {thisEp && episodes.length > 1 ? (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-red-400">
+                      <Layers className="h-3.5 w-3.5" />
+                      <span>{thisEp.series}</span>
+                      <span className="rounded-md bg-red-500/15 px-1.5 py-0.5 tracking-normal text-red-300">
+                        {thisEp.label}
+                      </span>
+                      <span className="text-zinc-500">
+                        {currentIdx + 1} of {episodes.length}
+                      </span>
+                    </div>
+                  ) : null}
                   <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight leading-tight text-white break-words">
-                    {vid.title}
+                    {thisEp && episodes.length > 1 ? `${thisEp.label} — ${thisEp.series}` : vid.title}
                   </h1>
+
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs sm:text-sm font-medium text-zinc-400">
                     <span>{vid.view_count} view{vid.view_count === 1 ? "" : "s"}</span>
                     <span className="w-1 h-1 rounded-full bg-zinc-700" />
