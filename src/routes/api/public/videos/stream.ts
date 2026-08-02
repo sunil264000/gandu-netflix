@@ -73,6 +73,20 @@ const VIDEO_CACHE_MS = 60_000;
 const seqCache = new Map<string, { nextByte: number; window: number; exp: number }>();
 const SEQ_CACHE_MS = 120_000;
 
+// Live concurrency on this isolate. Used to keep hundreds of simultaneous
+// viewers fair: window size and upstream fan-out both taper as load rises.
+let activeStreams = 0;
+function loadDivisor() {
+  if (activeStreams <= 4) return 1;
+  if (activeStreams <= 12) return 2;
+  if (activeStreams <= 32) return 4;
+  if (activeStreams <= 96) return 8;
+  return 16;
+}
+function parallelBudget() {
+  return Math.max(4, Math.floor(PARALLEL_FETCHES / loadDivisor()));
+}
+
 
 const BASE_HEADERS = {
   "accept-ranges": "bytes",
@@ -193,13 +207,17 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     const seqKey = preview ? `${id}:preview` : sid ? `${id}:${sid}` : id;
     const seq = download ? undefined : seqCache.get(seqKey);
     const sequential = !!seq && seq.exp > Date.now() && Math.abs(range.start - seq.nextByte) <= FAST_START_ZONE;
-    const window = download
+    const rawWindow = download
       ? DOWNLOAD_MAX_RESPONSE_BYTES
       : preview
         ? PREVIEW_RESPONSE_BYTES
         : sequential
           ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? startWindow) * WINDOW_RAMP)
           : startWindow;
+    // Fair-share under load: one viewer alone may hold a 1 GB window, but with
+    // hundreds of concurrent streams on the same isolate the windows shrink so
+    // every viewer keeps getting bytes instead of a few hogging the fan-out.
+    const window = preview ? rawWindow : Math.max(START_RESPONSE_BYTES / 4, Math.floor(rawWindow / loadDivisor()));
     if (range.end - range.start + 1 > window) {
       range.end = Math.min(range.start + window - 1, total - 1);
     }
@@ -240,17 +258,50 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
 
     const edgeCache: Cache | undefined = (globalThis as any).caches?.default;
 
+    // Every viewer asks for different byte offsets, so caching *slices* almost
+    // never hits. Caching whole parts makes the cache shared across all
+    // viewers of a title: with N concurrent watchers, storage sees roughly one
+    // read per part instead of N. Slices are cut out of the cached part.
+    const wholeKeyFor = (partPath: string) =>
+      new Request(`https://vault.stream.internal/${encodeURIComponent(partPath)}?whole=1`);
+
+    const sliceBody = (body: ReadableStream<Uint8Array>, from: number, to: number) => {
+      const want = to - from + 1;
+      let pos = 0;
+      let sent = 0;
+      return body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, ctrl) {
+            if (sent >= want) return;
+            const chunkStart = pos;
+            pos += chunk.byteLength;
+            if (pos - 1 < from) return;
+            const a = Math.max(0, from - chunkStart);
+            const b = Math.min(chunk.byteLength, a + (want - sent));
+            const piece = chunk.subarray(a, b);
+            sent += piece.byteLength;
+            ctrl.enqueue(piece);
+            if (sent >= want) ctrl.terminate();
+          },
+        }),
+      );
+    };
+
+    const cacheHeaders = { "cache-control": "public, max-age=604800", "content-type": "application/octet-stream" };
+
     const openPart = async (part: number): Promise<Response> => {
       const partPath = `${video.storage_path}.part-${String(part).padStart(6, "0")}`;
       const { sliceStart, sliceEnd } = partRangeOf(part);
-      const cacheKey = new Request(
-        `https://vault.stream.internal/${encodeURIComponent(partPath)}?s=${sliceStart}&e=${sliceEnd}`,
-      );
+      const partBytes = Math.min(chunkSize, total - part * chunkSize);
+      const wantsWholePart = sliceStart === 0 && sliceEnd >= partBytes - 1;
+      const cacheable = !download;
 
-      if (edgeCache) {
+      if (edgeCache && cacheable) {
         try {
-          const cached = await edgeCache.match(cacheKey);
-          if (cached?.body) return cached;
+          const cached = await edgeCache.match(wholeKeyFor(partPath));
+          if (cached?.body) {
+            return wantsWholePart ? cached : new Response(sliceBody(cached.body, sliceStart, sliceEnd));
+          }
         } catch {
           /* cache miss / unsupported */
         }
@@ -261,27 +312,27 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
         try {
           const signed = await getSignedUrl(partPath);
           if (!signed) throw new Error(`sign_failed:part=${part}`);
+          // Pull the whole part when it is cacheable so the next viewer is free;
+          // edge slices (first/last part of a window) fetch only what's needed.
+          const pullWhole = !!edgeCache && cacheable;
+          const reqStart = pullWhole ? 0 : sliceStart;
+          const reqEnd = pullWhole ? partBytes - 1 : sliceEnd;
           const res = await fetchWithTimeout(
             signed,
-            { headers: { range: `bytes=${sliceStart}-${sliceEnd}` } },
+            { headers: { range: `bytes=${reqStart}-${reqEnd}` } },
             CHUNK_FETCH_TIMEOUT_MS,
           );
           if ((res.status === 206 || res.status === 200) && res.body) {
-            if (edgeCache) {
-              try {
-                const [toCache, toClient] = res.body.tee();
-                void edgeCache.put(
-                  cacheKey,
-                  new Response(toCache, {
-                    headers: { "cache-control": "public, max-age=604800", "content-type": "application/octet-stream" },
-                  }),
-                );
-                return new Response(toClient);
-              } catch {
-                return res;
-              }
+            if (!pullWhole) return res;
+            try {
+              const [toCache, toClient] = res.body.tee();
+              void edgeCache!.put(wholeKeyFor(partPath), new Response(toCache, { headers: cacheHeaders }));
+              return wantsWholePart
+                ? new Response(toClient)
+                : new Response(sliceBody(toClient, sliceStart, sliceEnd));
+            } catch {
+              return res;
             }
-            return res;
           }
           if (res.status === 400 || res.status === 401 || res.status === 403) {
             urlCache.delete(partPath);
@@ -308,9 +359,8 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       if (!edgeCache) return;
       for (let p = from; p < Math.min(from + PREWARM_CACHE_PARTS, chunkCount); p += 1) {
         const partPath = `${video.storage_path}.part-${String(p).padStart(6, "0")}`;
-        const key = new Request(
-          `https://vault.stream.internal/${encodeURIComponent(partPath)}?s=0&e=${chunkSize - 1}`,
-        );
+        const key = wholeKeyFor(partPath);
+        const partBytes = Math.min(chunkSize, total - p * chunkSize);
         void (async () => {
           try {
             if (await edgeCache.match(key)) return;
@@ -318,16 +368,11 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
             if (!signed) return;
             const res = await fetchWithTimeout(
               signed,
-              { headers: { range: `bytes=0-${chunkSize - 1}` } },
+              { headers: { range: `bytes=0-${partBytes - 1}` } },
               CHUNK_FETCH_TIMEOUT_MS,
             );
             if (!res.body) return;
-            await edgeCache.put(
-              key,
-              new Response(res.body, {
-                headers: { "cache-control": "public, max-age=604800", "content-type": "application/octet-stream" },
-              }),
-            );
+            await edgeCache.put(key, new Response(res.body, { headers: cacheHeaders }));
           } catch {
             /* best effort */
           }
@@ -335,6 +380,12 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
       }
     };
 
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      activeStreams = Math.max(0, activeStreams - 1);
+    };
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         const pending = new Map<number, Promise<Response>>();
@@ -345,7 +396,9 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
           promise.catch(() => {}); // avoid unhandled rejection before we await it
           pending.set(p, promise);
         };
-        for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) kick(i);
+        const fanOut = parallelBudget();
+        activeStreams += 1;
+        for (let i = 0; i < Math.min(fanOut, partIndices.length); i += 1) kick(i);
         prewarmAhead();
 
 
@@ -354,7 +407,7 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
             const part = partIndices[i];
             const res = await pending.get(part)!;
             pending.delete(part);
-            kick(i + PARALLEL_FETCHES);
+            kick(i + fanOut);
             const reader = res.body!.getReader();
             for (;;) {
               const { done, value } = await reader.read();
@@ -366,7 +419,12 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
         } catch (streamError) {
           log("error", "stream.chunk_failed", { reqId, id, err: errShape(streamError) });
           controller.error(streamError);
+        } finally {
+          release();
         }
+      },
+      cancel() {
+        release();
       },
     });
 

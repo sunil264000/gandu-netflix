@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Loader2, Trash2, Download } from "lucide-react";
 import { startUrlIngest, pumpIngest, listIngestJobs, cancelIngest } from "@/lib/ingest.functions";
+import { autoPosterForVideo } from "@/lib/posters.functions";
+import { attachAudioTrack } from "@/lib/videos.functions";
+import { extractCompatibleAudioFromServer, serverRescueSupported, likelyNeedsCompatibleAudio } from "@/lib/audioTranscode";
+import { uploadAny } from "@/lib/storageUpload";
 
 function fmtBytes(b: number) {
   if (b >= 1e12) return (b / 1e12).toFixed(2) + " TB";
@@ -22,6 +26,9 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
   const _pump = useServerFn(pumpIngest);
   const _list = useServerFn(listIngestJobs);
   const _cancel = useServerFn(cancelIngest);
+  const _poster = useServerFn(autoPosterForVideo);
+  const _attach = useServerFn(attachAudioTrack);
+  const [post, setPost] = useState<Record<string, string>>({});
 
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
@@ -34,6 +41,47 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
     queryFn: () => _list(),
     refetchInterval: 3000,
   });
+
+  // Once the bytes are in storage the import isn't really finished: the title
+  // still needs real artwork, and release rips need an AAC companion track
+  // before any browser can play their Dolby/DTS soundtrack. Both run here,
+  // automatically, so an imported file is watchable without any manual step.
+  const finishImport = useCallback(
+    async (job: { id: string; video_id: string | null; file_name: string; total_bytes: number }) => {
+      if (!job.video_id) return;
+      const videoId = job.video_id;
+      try {
+        setPost((m) => ({ ...m, [job.id]: "Fetching artwork…" }));
+        await _poster({ data: { videoId } });
+        qc.invalidateQueries({ queryKey: ["admin:videos"] });
+      } catch { /* artwork is best-effort */ }
+
+      const needsAac =
+        likelyNeedsCompatibleAudio(job.file_name) || !/\.(mp4|m4v|webm)$/i.test(job.file_name);
+      if (needsAac && serverRescueSupported()) {
+        try {
+          const res = await extractCompatibleAudioFromServer({
+            streamUrl: `/api/public/videos/stream?id=${encodeURIComponent(videoId)}`,
+            fileName: job.file_name,
+            sizeBytes: Number(job.total_bytes),
+            onProgress: (p) =>
+              setPost((m) => ({
+                ...m,
+                [job.id]: `${p.phase === "converting" ? "Converting audio" : "Reading audio"} ${p.pct.toFixed(0)}%`,
+              })),
+          });
+          setPost((m) => ({ ...m, [job.id]: "Saving audio…" }));
+          const path = `audio/${videoId}.${res.ext}`;
+          await uploadAny("videos", path, new File([res.blob], `${videoId}.${res.ext}`, { type: "audio/mp4" }));
+          await _attach({ data: { videoId, path, label: res.label } });
+        } catch { /* the admin "Fix audio" button remains as a manual fallback */ }
+      }
+      setPost((m) => { const n = { ...m }; delete n[job.id]; return n; });
+      qc.invalidateQueries({ queryKey: ["admin:videos"] });
+      onDone();
+    },
+    [_poster, _attach, qc, onDone],
+  );
 
   // Keep every unfinished job moving: one in-flight pump per job at a time.
   useEffect(() => {
@@ -50,6 +98,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
           }
           qc.invalidateQueries({ queryKey: ["admin:videos"] });
           onDone();
+          await finishImport(job);
         } catch {
           /* surfaced through the job row */
         } finally {
@@ -57,7 +106,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
         }
       })();
     }
-  }, [jobs.data, _pump, qc, onDone]);
+  }, [jobs.data, _pump, qc, onDone, finishImport]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,7 +173,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
                     <p className="truncate text-sm font-medium">{j.file_name}</p>
                     <p className="text-[11px] text-white/45">
                       {fmtBytes(Number(j.bytes_done))} / {fmtBytes(Number(j.total_bytes))}
-                      {speed ? ` · ${speed}` : ""} · {j.status}
+                      {speed ? ` · ${speed}` : ""} · {post[j.id] ?? j.status}
                     </p>
                   </div>
                   <span className="text-xs tabular-nums text-white/70">{pct.toFixed(1)}%</span>

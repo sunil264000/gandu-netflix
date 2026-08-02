@@ -5,6 +5,7 @@ import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp, Activity } fro
 import { createVideoRecord, createCategory, listCategories, attachAudioTrack } from "@/lib/videos.functions";
 import { extractCompatibleAudio, likelyNeedsCompatibleAudio, transcodeSupported, type TranscodeProgress } from "@/lib/audioTranscode";
 import { createUploadJob, updateUploadJob } from "@/lib/uploadTracker";
+import { autoPosterForVideo } from "@/lib/posters.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -210,6 +211,33 @@ async function generatePosterThumbnail(title: string): Promise<Blob | null> {
   });
 }
 
+/**
+ * Decide compatibility by evidence, not by extension: play the first seconds
+ * muted and see whether the browser actually decodes any audio bytes. Dolby
+ * DD+/TrueHD/DTS/5.1-PCM tracks decode zero bytes here.
+ */
+async function audioDecodesInBrowser(file: File): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const url = URL.createObjectURL(file.slice(0, Math.min(file.size, 64 * 1024 * 1024), file.type));
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
+    const finish = (ok: boolean) => {
+      if (settled) return; settled = true;
+      try { v.pause(); } catch { /* ignore */ }
+      URL.revokeObjectURL(url);
+      resolve(ok);
+    };
+    v.onerror = () => finish(false);
+    v.onloadedmetadata = () => { void v.play().catch(() => finish(false)); };
+    setTimeout(() => {
+      const decoded = (v as unknown as { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount;
+      // Unknown counter (Firefox/Safari) -> assume fine and rely on the heuristic.
+      finish(typeof decoded !== "number" ? true : decoded > 0);
+    }, 4000);
+  });
+}
+
 export function UploadZone({ categoryId, onDone }: { categoryId: string | null; onDone: () => void }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [drag, setDrag] = useState(false);
@@ -217,6 +245,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
   const folderRef = useRef<HTMLInputElement>(null);
   const _create = useServerFn(createVideoRecord);
   const _attachAudio = useServerFn(attachAudioTrack);
+  const _poster = useServerFn(autoPosterForVideo);
   const _createCat = useServerFn(createCategory);
   const _listCats = useServerFn(listCategories);
   const qc = useQueryClient();
@@ -323,13 +352,26 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       remote({ status: "done", message: "Uploaded", progress: 100, force: true });
       onDone();
 
+      // Real artwork beats a frame grab: look the title up against the poster
+      // providers right after the record exists, then refresh the grid.
+      if (created?.id) {
+        void _poster({ data: { videoId: created.id } })
+          .then(() => { onDone(); qc.invalidateQueries({ queryKey: ["admin:videos"] }); })
+          .catch(() => {});
+      }
+
       // ---- Automatic browser-side audio rescue -------------------------------
-      // Release rips (MKV/M2TS) usually carry DTS / TrueHD / E-AC3, which no
-      // browser can decode. While we still hold the local file, convert its
-      // soundtrack to AAC with WebAssembly ffmpeg and attach it as a companion
-      // track — exactly what Netflix does, just done client-side.
-      const autoAac =
-        likelyNeedsCompatibleAudio(file.name) || !/\.(mp4|m4v|webm)$/i.test(file.name);
+      // Release rips (MKV/M2TS) usually carry DTS / TrueHD / E-AC3 / 5.1 PCM,
+      // which no browser can decode. While we still hold the local file, convert
+      // its soundtrack to AAC with WebAssembly ffmpeg and attach it as a
+      // companion track — exactly what Netflix does, just done client-side.
+      // The filename heuristic is only a shortcut; anything it doesn't catch is
+      // decided by actually trying to decode the audio in this browser.
+      let autoAac = likelyNeedsCompatibleAudio(file.name) || !/\.(mp4|m4v|webm)$/i.test(file.name);
+      if (!autoAac) {
+        updateJob(job.id, { status: "audio", message: "Checking audio compatibility…" });
+        autoAac = !(await audioDecodesInBrowser(file));
+      }
       if (created?.id && transcodeSupported() && autoAac) {
         try {
           updateJob(job.id, { status: "audio", message: "Preparing browser audio…", progress: 0 });
