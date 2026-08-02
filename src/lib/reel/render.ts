@@ -290,9 +290,11 @@ function drawCaption(
     local = raw < tIn ? (raw / tIn) * span + 0.07 : span + (raw - tIn) + 0.07;
   }
 
+  const settled = !!s.settled;
   const inFade = clamp01(local / 0.22);
   const outFade = opts.holdOut ? 1 : clamp01((item.end - t) / 0.28);
-  const groupAlpha = opts.plain ? 1 : Math.min(inFade, outFade);
+  const groupAlpha = settled || opts.plain ? 1 : Math.min(inFade, outFade);
+
 
 
   ctx.textBaseline = "middle";
