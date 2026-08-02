@@ -1,13 +1,16 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Heart, ArrowLeft, Play, Share2, Clock, Info, Headphones, ExternalLink, Copy } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { TurboDownload } from "@/components/TurboDownload";
+import { extractCompatibleAudioFromServer, serverRescueSupported, type TranscodeProgress } from "@/lib/audioTranscode";
+import { uploadAny } from "@/lib/storageUpload";
 
-import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite } from "@/lib/videos.functions";
+import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite, attachAudioTrack } from "@/lib/videos.functions";
+
 
 export const Route = createFileRoute("/watch/$slug")({
   component: Watch,
