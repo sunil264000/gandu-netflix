@@ -122,14 +122,15 @@ function StudioPage() {
   // Display fonts must be resident before the canvas measures text, otherwise
   // the first paint falls back to a system face and the layout shifts later.
   useEffect(() => {
-    void document.fonts?.ready.then(() => paint(time));
+    void document.fonts?.ready.then(() => paint(time, true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Repaint whenever the design changes while paused.
   useEffect(() => {
-    if (!playing) paint(time);
+    if (!playing) paint(time, true);
   }, [paint, playing, time]);
+
 
 
   // Playback loop.
