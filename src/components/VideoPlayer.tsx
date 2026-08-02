@@ -47,7 +47,7 @@ const HARD_RESYNC = 0.45; // only re-seek the audio past this much drift
 
 export function VideoPlayer({
   src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions,
-  audioSrc, audioLabel, playlistUrl,
+  audioSrc, audioLabel, playlistUrl, onNoAudio,
 }: Props) {
 
   const wrapRef = useRef<HTMLDivElement>(null);
