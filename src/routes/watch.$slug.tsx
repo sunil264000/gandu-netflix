@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Heart, ArrowLeft, Play, Share2, Clock, Info, Headphones, ExternalLink, Copy } from "lucide-react";
+import { Heart, ArrowLeft, Play, Share2, Clock, Info, Headphones, ExternalLink, Copy, Layers } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { TurboDownload } from "@/components/TurboDownload";
