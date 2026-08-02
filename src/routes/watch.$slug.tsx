@@ -357,6 +357,48 @@ function Watch() {
             </div>
 
             <aside className="col-span-12 lg:col-span-4 space-y-5 sm:space-y-6">
+              {thisEp && episodes.length > 1 ? (
+                <section className="rounded-2xl border border-white/10 bg-zinc-900/50 p-3 sm:p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h2 className="text-xs font-black uppercase tracking-[0.25em] text-zinc-400">Episodes</h2>
+                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-zinc-400">
+                      {episodes.length}
+                    </span>
+                  </div>
+                  <ol className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
+                    {episodes.map((e) => {
+                      const active = e.v.id === vid.id;
+                      return (
+                        <li key={e.v.id}>
+                          <Link
+                            to="/watch/$slug"
+                            params={{ slug: e.v.slug ?? e.v.id }}
+                            className={`flex items-center gap-3 rounded-xl px-2.5 py-2 transition-colors ${
+                              active ? "bg-red-500/15 ring-1 ring-red-500/40" : "hover:bg-white/5"
+                            }`}
+                          >
+                            <span
+                              className={`w-12 shrink-0 rounded-md px-1 py-0.5 text-center text-[10px] font-bold tabular-nums ${
+                                active ? "bg-red-500 text-white" : "bg-white/10 text-zinc-300"
+                              }`}
+                            >
+                              {e.ep.label}
+                            </span>
+                            <span className={`min-w-0 flex-1 truncate text-[12.5px] font-medium ${active ? "text-white" : "text-zinc-300"}`}>
+                              {e.v.title}
+                            </span>
+                            {e.v.duration_sec ? (
+                              <span className="shrink-0 text-[10px] tabular-nums text-zinc-500">{fmtDur(e.v.duration_sec)}</span>
+                            ) : null}
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </section>
+              ) : null}
+
+
               <div className="flex items-center justify-between">
                 <h2 className="text-xs font-black uppercase tracking-[0.25em] text-zinc-500">Up Next</h2>
                 <button
