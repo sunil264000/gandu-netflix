@@ -9,7 +9,9 @@ import { TurboDownload } from "@/components/TurboDownload";
 import { extractCompatibleAudioFromServer, serverRescueSupported, type TranscodeProgress } from "@/lib/audioTranscode";
 import { uploadAny } from "@/lib/storageUpload";
 
-import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite, attachAudioTrack } from "@/lib/videos.functions";
+import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite, attachAudioTrack, searchVideos } from "@/lib/videos.functions";
+import { parseEpisode, normalizeKey, compareEpisodes, type EpisodeInfo } from "@/lib/series";
+
 
 
 export const Route = createFileRoute("/watch/$slug")({
