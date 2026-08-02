@@ -390,7 +390,9 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
           promise.catch(() => {}); // avoid unhandled rejection before we await it
           pending.set(p, promise);
         };
-        for (let i = 0; i < Math.min(PARALLEL_FETCHES, partIndices.length); i += 1) kick(i);
+        const fanOut = parallelBudget();
+        activeStreams += 1;
+        for (let i = 0; i < Math.min(fanOut, partIndices.length); i += 1) kick(i);
         prewarmAhead();
 
 
@@ -399,7 +401,7 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
             const part = partIndices[i];
             const res = await pending.get(part)!;
             pending.delete(part);
-            kick(i + PARALLEL_FETCHES);
+            kick(i + fanOut);
             const reader = res.body!.getReader();
             for (;;) {
               const { done, value } = await reader.read();
@@ -411,7 +413,12 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
         } catch (streamError) {
           log("error", "stream.chunk_failed", { reqId, id, err: errShape(streamError) });
           controller.error(streamError);
+        } finally {
+          activeStreams = Math.max(0, activeStreams - 1);
         }
+      },
+      cancel() {
+        activeStreams = Math.max(0, activeStreams - 1);
       },
     });
 
