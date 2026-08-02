@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Sparkles, Play, Pause, Download, Plus, Trash2, Music, Image as ImageIcon,
-  Loader2, Wand2, GripVertical, RotateCcw, Film,
+  Loader2, Wand2, GripVertical, RotateCcw, Film, Shuffle,
 } from "lucide-react";
 import { Page, PageHeading } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,7 @@ function StudioPage() {
   const [badge, setBadge] = useState("");
   const [showProgress, setShowProgress] = useState(true);
   const [speed, setSpeed] = useState(1);
+  const [bulkTrans, setBulkTrans] = useState<TransitionId>("auto");
 
   const [media, setMedia] = useState<ReelMedia>({ kind: "none" });
   const [mediaName, setMediaName] = useState("");
@@ -459,6 +460,31 @@ function StudioPage() {
               />
             </div>
 
+            <div className="mt-4">
+              <Label className="text-xs text-muted-foreground">Transition style</Label>
+              <div className="mt-2 flex gap-2">
+                <select
+                  aria-label="Transition for every line"
+                  value={bulkTrans}
+                  onChange={(e) => setBulkTrans(e.target.value as TransitionId)}
+                  className="h-9 flex-1 rounded-md border border-white/10 bg-black/40 px-2 text-sm outline-none focus:border-primary"
+                >
+                  {TRANSITIONS.map((tr) => (
+                    <option key={tr.id} value={tr.id}>
+                      {tr.id === "auto" ? `Auto (${template.transition})` : tr.name}
+                    </option>
+                  ))}
+                </select>
+                <Button size="sm" variant="secondary" className="h-9 gap-2" onClick={applyTransitionToAll}>
+                  <Shuffle className="size-4" /> Apply to all
+                </Button>
+                <Button size="sm" variant="ghost" className="h-9" onClick={surpriseTransitions}>
+                  Mix it up
+                </Button>
+              </div>
+            </div>
+
+
             <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
               {scenes.map((s, i) => (
                 <div key={s.id} className="rounded-xl border border-white/10 bg-black/30 p-2">
@@ -497,6 +523,22 @@ function StudioPage() {
                       auto
                     </Button>
                   </div>
+                  <div className="mt-1 flex items-center gap-2 pl-6">
+                    <Shuffle className="size-3 text-muted-foreground" />
+                    <select
+                      aria-label="Transition into this line"
+                      value={s.trans ?? "auto"}
+                      onChange={(e) => updateScene(s.id, { trans: e.target.value as TransitionId })}
+                      className="h-7 flex-1 rounded-md border border-white/10 bg-black/40 px-2 text-[11px] outline-none focus:border-primary"
+                    >
+                      {TRANSITIONS.map((tr) => (
+                        <option key={tr.id} value={tr.id}>
+                          {tr.id === "auto" ? `Auto (${template.transition})` : tr.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                 </div>
               ))}
             </div>
