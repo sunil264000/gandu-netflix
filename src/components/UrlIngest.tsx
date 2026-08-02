@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Loader2, Trash2, Download } from "lucide-react";
@@ -106,7 +106,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
         }
       })();
     }
-  }, [jobs.data, _pump, qc, onDone]);
+  }, [jobs.data, _pump, qc, onDone, finishImport]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
