@@ -193,13 +193,17 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     const seqKey = preview ? `${id}:preview` : sid ? `${id}:${sid}` : id;
     const seq = download ? undefined : seqCache.get(seqKey);
     const sequential = !!seq && seq.exp > Date.now() && Math.abs(range.start - seq.nextByte) <= FAST_START_ZONE;
-    const window = download
+    const rawWindow = download
       ? DOWNLOAD_MAX_RESPONSE_BYTES
       : preview
         ? PREVIEW_RESPONSE_BYTES
         : sequential
           ? Math.min(MAX_RESPONSE_BYTES, (seq?.window ?? startWindow) * WINDOW_RAMP)
           : startWindow;
+    // Fair-share under load: one viewer alone may hold a 1 GB window, but with
+    // hundreds of concurrent streams on the same isolate the windows shrink so
+    // every viewer keeps getting bytes instead of a few hogging the fan-out.
+    const window = preview ? rawWindow : Math.max(START_RESPONSE_BYTES / 4, Math.floor(rawWindow / loadDivisor()));
     if (range.end - range.start + 1 > window) {
       range.end = Math.min(range.start + window - 1, total - 1);
     }
