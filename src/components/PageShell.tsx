@@ -34,20 +34,33 @@ export function Ambience() {
   );
 }
 
+function SiteFooter() {
+  return (
+    <footer className="mt-8 border-t border-white/[0.06] bg-black/40 backdrop-blur-xl">
+      <div className="mx-auto flex w-full max-w-[1600px] flex-col items-start gap-3 px-4 py-8 text-xs text-white/35 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <span className="font-semibold tracking-[0.18em] text-white/50">GANDU·NETFLIX</span>
+        <span>Private library · 4K/8K streaming · built for one household</span>
+      </div>
+    </footer>
+  );
+}
+
 /** Standard page frame: ambience + header + centered content column. */
 export function Page({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <div className="relative min-h-screen bg-[#08080a] text-white">
+    <div className="relative flex min-h-screen flex-col bg-[#08080a] text-white">
       <Ambience />
-      <div className="relative z-10">
+      <div className="relative z-10 flex min-h-screen flex-col">
         <AppHeader />
-        <main className={`mx-auto w-full ${wide ? "max-w-[1800px]" : "max-w-[1600px]"} px-4 pb-24 pt-6 sm:px-6 sm:pt-8`}>
+        <main className={`mx-auto w-full flex-1 ${wide ? "max-w-[1800px]" : "max-w-[1600px]"} px-4 pb-20 pt-6 sm:px-6 sm:pt-8`}>
           {children}
         </main>
+        <SiteFooter />
       </div>
     </div>
   );
 }
+
 
 export function PageHeading({
   title,
