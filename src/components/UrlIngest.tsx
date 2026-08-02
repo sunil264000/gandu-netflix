@@ -173,7 +173,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
                     <p className="truncate text-sm font-medium">{j.file_name}</p>
                     <p className="text-[11px] text-white/45">
                       {fmtBytes(Number(j.bytes_done))} / {fmtBytes(Number(j.total_bytes))}
-                      {speed ? ` · ${speed}` : ""} · {j.status}
+                      {speed ? ` · ${speed}` : ""} · {post[j.id] ?? j.status}
                     </p>
                   </div>
                   <span className="text-xs tabular-nums text-white/70">{pct.toFixed(1)}%</span>
