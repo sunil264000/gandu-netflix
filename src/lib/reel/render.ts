@@ -24,7 +24,13 @@ export type ReelState = {
   showProgress: boolean;
   /** 0..1 loudness from the audio analyser — drives the beat pulse. */
   level: number;
+  /**
+   * Editor preview while paused: show each line fully composed instead of
+   * frozen halfway through its reveal.
+   */
+  settled?: boolean;
 };
+
 
 export type Timed = Scene & { start: number; end: number };
 
