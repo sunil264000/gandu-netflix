@@ -113,6 +113,56 @@ export function looksLikeReleaseName(title: string): boolean {
 
 type Candidate = { url: string; source: string; score: number };
 
+/**
+ * Reads the real pixel size straight out of the image header (first 64 KB) so
+ * we can reject anything that isn't a wide still. Providers lie about crops,
+ * measuring is the only reliable filter.
+ */
+async function imageSize(url: string): Promise<{ w: number; h: number } | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, headers: { range: "bytes=0-65535", accept: "image/*" } });
+    if (!res.ok) return null;
+    const b = new Uint8Array(await res.arrayBuffer());
+
+    // PNG: IHDR is always the first chunk.
+    if (b[0] === 0x89 && b[1] === 0x50) {
+      const dv = new DataView(b.buffer, b.byteOffset);
+      return { w: dv.getUint32(16), h: dv.getUint32(20) };
+    }
+    // JPEG: walk the marker chain to the frame header.
+    if (b[0] === 0xff && b[1] === 0xd8) {
+      let i = 2;
+      while (i + 9 < b.length) {
+        if (b[i] !== 0xff) { i++; continue; }
+        const marker = b[i + 1]!;
+        const len = (b[i + 2]! << 8) | b[i + 3]!;
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { h: (b[i + 5]! << 8) | b[i + 6]!, w: (b[i + 7]! << 8) | b[i + 8]! };
+        }
+        i += 2 + len;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** A card image must be a genuine wide still — never a portrait poster. */
+const WIDE_MIN = 1.55;
+const MIN_WIDTH = 780;
+
+async function isWideEnough(url: string): Promise<boolean> {
+  const size = await imageSize(url);
+  if (!size || !size.w || !size.h) return false;
+  return size.w / size.h >= WIDE_MIN && size.w >= MIN_WIDTH;
+}
+
+
 async function j(url: string, timeoutMs = 7000): Promise<any | null> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -132,33 +182,33 @@ async function j(url: string, timeoutMs = 7000): Promise<any | null> {
  * Pulls the full backdrop gallery and picks the highest-rated true 16:9 still
  * at original resolution, so cards never get a cropped portrait poster.
  */
-async function tmdbLookup(p: ParsedTitle): Promise<Candidate | null> {
+async function tmdbLookup(p: ParsedTitle): Promise<Candidate[]> {
   const key = process.env["TMDB_API_KEY"];
-  if (!key) return null;
+  if (!key) return [];
   const q = encodeURIComponent(p.title);
   const yr = p.year ? `&year=${p.year}` : "";
   const data = await j(`https://api.themoviedb.org/3/search/multi?api_key=${key}&query=${q}${yr}&include_adult=false`);
   const hit = (data?.results ?? []).find((r: any) => r.poster_path || r.backdrop_path);
-  if (!hit) return null;
+  if (!hit) return [];
 
   const kind = hit.media_type === "tv" || hit.first_air_date ? "tv" : "movie";
   const images = await j(
     `https://api.themoviedb.org/3/${kind}/${hit.id}/images?api_key=${key}&include_image_language=en,null`,
   );
-  const wide: any[] = (images?.backdrops ?? []).filter(
-    (b: any) => typeof b.aspect_ratio === "number" && b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85,
-  );
-  if (wide.length) {
-    wide.sort(
-      (a, b) => b.vote_average - a.vote_average || b.width - a.width,
-    );
-    return { url: `https://image.tmdb.org/t/p/original${wide[0].file_path}`, source: "tmdb:backdrop", score: 5 };
-  }
+  const wide: any[] = (images?.backdrops ?? [])
+    .filter((b: any) => typeof b.aspect_ratio === "number" && b.aspect_ratio >= 1.7 && b.width >= 1280)
+    .sort((a: any, b: any) => b.width - a.width || b.vote_average - a.vote_average);
+
+  const out: Candidate[] = wide
+    .slice(0, 5)
+    .map((b) => ({ url: `https://image.tmdb.org/t/p/original${b.file_path}`, source: "tmdb:backdrop", score: 5 }));
   if (hit.backdrop_path) {
-    return { url: `https://image.tmdb.org/t/p/original${hit.backdrop_path}`, source: "tmdb:backdrop", score: 4 };
+    out.push({ url: `https://image.tmdb.org/t/p/original${hit.backdrop_path}`, source: "tmdb:backdrop", score: 4 });
   }
-  return { url: `https://image.tmdb.org/t/p/w780${hit.poster_path}`, source: "tmdb:poster", score: 2 };
+  // Portrait posters are deliberately not offered — cards are 16:9 only.
+  return out;
 }
+
 
 
 const SCRAPE_HEADERS = {
@@ -183,55 +233,50 @@ async function html(url: string, timeoutMs = 8000): Promise<string | null> {
 }
 
 /**
- * TMDB public pages — keyless. The search page gives us the title's detail
- * page, and the detail page exposes the wide backdrop, which fits a 16:9 card
- * far better than a portrait poster. Poster is the fallback.
+ * TMDB public pages — keyless. The backdrops gallery is the goldmine: every
+ * still there is a true wide frame, uploaded at source resolution.
  */
-async function tmdbScrapeLookup(p: ParsedTitle): Promise<Candidate | null> {
+async function tmdbScrapeLookup(p: ParsedTitle): Promise<Candidate[]> {
+  const out: Candidate[] = [];
   const queries = [p.year ? `${p.title} y:${p.year}` : p.title, p.title];
   for (const query of queries) {
     const page = await html(`https://www.themoviedb.org/search?query=${encodeURIComponent(query)}`);
     if (!page) continue;
 
     const link = page.match(/href="(\/(?:movie|tv)\/\d+[^"?#]*)"/);
-    if (link?.[1]) {
-      const base = link[1].split("?")[0];
+    if (!link?.[1]) continue;
+    const base = link[1].split("?")[0];
 
-      // The backdrops gallery lists every wide still the community uploaded —
-      // these are always true 16:9 and far sharper than the header crop.
-      const gallery = await html(`https://www.themoviedb.org${base}/images/backdrops`);
-      if (gallery) {
-        const files = [...gallery.matchAll(/image\.tmdb\.org\/t\/p\/w\d+_and_h\d+[a-z_]*\/([A-Za-z0-9]+\.(?:jpg|png))/g)]
-          .map((m) => m[1])
-          .filter((f, i, a) => a.indexOf(f) === i);
-        if (files[0]) {
-          return { url: `https://image.tmdb.org/t/p/original/${files[0]}`, source: "tmdb:backdrop", score: 5 };
-        }
-      }
-
-      const detail = await html(`https://www.themoviedb.org${base}`);
-      if (detail) {
-        const backdrop = detail.match(/\/t\/p\/w\d+_and_h\d+(?:_multi_faces|_face|_bestv2)?\/([A-Za-z0-9]+\.(?:jpg|png))"?[^>]*class="[^"]*backdrop/);
-        const wide =
-          backdrop?.[1] ??
-          detail.match(/image\.tmdb\.org\/t\/p\/w1920_and_h800_multi_faces\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
-        if (wide) return { url: `https://image.tmdb.org/t/p/original/${wide}`, source: "tmdb:backdrop", score: 4 };
-        const poster = detail.match(/\/t\/p\/w\d+_and_h\d+_bestv2\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
-        if (poster) return { url: `https://image.tmdb.org/t/p/w780/${poster}`, source: "tmdb:poster", score: 3 };
+    const gallery = await html(`https://www.themoviedb.org${base}/images/backdrops`);
+    if (gallery) {
+      const files = [...gallery.matchAll(/image\.tmdb\.org\/t\/p\/(?:original|w\d+(?:_and_h\d+)?[a-z_0-9]*)\/([A-Za-z0-9]+\.(?:jpg|png))/g)]
+        .map((m) => m[1]!)
+        .filter((f, i, a) => a.indexOf(f) === i)
+        .slice(0, 6);
+      for (const f of files) {
+        out.push({ url: `https://image.tmdb.org/t/p/original/${f}`, source: "tmdb:backdrop", score: 5 });
       }
     }
 
-
-    const match = page.match(/\/t\/p\/w\d+_and_h\d+_face\/([A-Za-z0-9]+\.(?:jpg|png))/);
-    if (match) return { url: `https://image.tmdb.org/t/p/w780/${match[1]}`, source: "tmdb", score: 3 };
+    const detail = await html(`https://www.themoviedb.org${base}`);
+    if (detail) {
+      const wide =
+        detail.match(/\/t\/p\/w\d+_and_h\d+(?:_multi_faces|_face|_bestv2)?\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1] ??
+        detail.match(/image\.tmdb\.org\/t\/p\/original\/([A-Za-z0-9]+\.(?:jpg|png))/)?.[1];
+      if (wide) out.push({ url: `https://image.tmdb.org/t/p/original/${wide}`, source: "tmdb:backdrop", score: 4 });
+    }
+    if (out.length) break;
   }
-  return null;
+  return out;
 }
 
-
-/** iTunes Search — keyless, global catalogue incl. Indian cinema. */
-async function itunesLookup(p: ParsedTitle): Promise<Candidate | null> {
+/**
+ * iTunes ships square cover art — only usable when Apple actually stores a
+ * wide still, which the measurement pass decides.
+ */
+async function itunesLookup(p: ParsedTitle): Promise<Candidate[]> {
   const q = encodeURIComponent(p.title);
+  const out: Candidate[] = [];
   for (const country of ["IN", "US"]) {
     const data = await j(
       `https://itunes.apple.com/search?term=${q}&media=movie&entity=movie&limit=8&country=${country}`,
@@ -245,26 +290,29 @@ async function itunesLookup(p: ParsedTitle): Promise<Candidate | null> {
     }
     const art: string | undefined = best?.artworkUrl100;
     if (!art) continue;
-    return { url: art.replace(/\/\d+x\d+bb\.(jpg|png)$/, "/1200x1200bb.jpg"), source: `itunes:${country}`, score: 2 };
+    out.push({
+      url: art.replace(/\/\d+x\d+bb\.(jpg|png)$/, "/2000x1125bb.jpg"),
+      source: `itunes:${country}`,
+      score: 2,
+    });
   }
-  return null;
+  return out;
 }
 
-/** Wikipedia page image — decent last-resort for titles iTunes misses. */
-async function wikipediaLookup(p: ParsedTitle): Promise<Candidate | null> {
+/** Wikipedia page image — last resort, usually portrait so rarely survives. */
+async function wikipediaLookup(p: ParsedTitle): Promise<Candidate[]> {
   const q = encodeURIComponent(p.year ? `${p.title} ${p.year} film` : `${p.title} film`);
   const search = await j(
-    `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrlimit=1&gsrsearch=${q}&prop=pageimages&piprop=original&pithumbsize=1200`,
+    `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrlimit=1&gsrsearch=${q}&prop=pageimages&piprop=original&pithumbsize=1600`,
   );
   const pages = search?.query?.pages;
-  if (!pages) return null;
+  if (!pages) return [];
+  const out: Candidate[] = [];
   for (const key of Object.keys(pages)) {
     const url = pages[key]?.original?.source ?? pages[key]?.thumbnail?.source;
-    if (typeof url === "string" && /\.(jpe?g|png)$/i.test(url)) {
-      return { url, source: "wikipedia", score: 1 };
-    }
+    if (typeof url === "string" && /\.(jpe?g|png)$/i.test(url)) out.push({ url, source: "wikipedia", score: 1 });
   }
-  return null;
+  return out;
 }
 
 export async function findPosterUrl(filenameOrTitle: string): Promise<{ url: string; source: string; query: string } | null> {
@@ -272,21 +320,26 @@ export async function findPosterUrl(filenameOrTitle: string): Promise<{ url: str
   if (!parsed.title || parsed.title.length < 2) return null;
 
   const providers = [tmdbLookup, tmdbScrapeLookup, itunesLookup, wikipediaLookup];
-  let best: Candidate | null = null;
   for (const provider of providers) {
+    let hits: Candidate[] = [];
     try {
-      const hit = await provider(parsed);
-      if (hit && (!best || hit.score > best.score)) best = hit;
-      // score >= 4 means a true wide 16:9 still — good enough, stop early.
-      if (best && best.score >= 4) break;
+      hits = await provider(parsed);
     } catch {
-      /* try next provider */
+      continue;
+    }
+    hits.sort((a, b) => b.score - a.score);
+    for (const hit of hits) {
+      // Measure before accepting: only a genuine wide, high-resolution still
+      // may become a card image. Anything portrait/square is discarded, and
+      // the video's own 16:9 frame-grab stays instead.
+      if (await isWideEnough(hit.url)) {
+        return { url: hit.url, source: hit.source, query: parsed.title };
+      }
     }
   }
-  if (best) return { url: best.url, source: best.source, query: parsed.title };
   return null;
-
 }
+
 
 /** Downloads the artwork and stores it in the thumbnails bucket. */
 export async function saveRemotePoster(
