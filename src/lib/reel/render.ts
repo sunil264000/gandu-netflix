@@ -494,7 +494,7 @@ type Slot = { canvas: HTMLCanvasElement; p: number; dir: "out" | "in" };
 
 function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, accent: string) {
   const { canvas, p, dir } = slot;
-  const e = dir === "in" ? easeOut(p) : easeOut(p);
+  const e = easeInOut(p);
   ctx.save();
   switch (kind) {
     case "fade":
@@ -509,13 +509,15 @@ function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, ac
     }
     case "whip": {
       const off = dir === "in" ? (1 - e) * W * 0.9 : -e * W * 0.9;
-      // Smear a few ghosts along the travel path for a motion-blur feel.
-      const ghosts = 5;
-      for (let i = 0; i < ghosts; i++) {
-        ctx.globalAlpha = (dir === "in" ? e : 1 - e) * (0.9 / ghosts);
-        ctx.drawImage(canvas, off + (i - ghosts / 2) * 26, 0);
+      // Smear a few ghosts along the travel path for a motion-blur feel. The
+      // smear thins out as the move settles so the final frame stays crisp.
+      const travel = dir === "in" ? 1 - e : e;
+      const ghosts = 6;
+      for (let i = 1; i <= ghosts; i++) {
+        ctx.globalAlpha = 0.16 * travel;
+        ctx.drawImage(canvas, off + (dir === "in" ? 1 : -1) * i * 30 * travel, 0);
       }
-      ctx.globalAlpha = dir === "in" ? e : 1 - e;
+      ctx.globalAlpha = dir === "in" ? Math.min(1, e * 1.5) : 1 - e;
       ctx.drawImage(canvas, off, 0);
       break;
     }
@@ -534,22 +536,25 @@ function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, ac
     }
     case "glitch": {
       const jitter = (1 - e) * 26;
-      ctx.globalAlpha = dir === "in" ? Math.min(1, p * 2) : 1 - e;
+      ctx.globalAlpha = (dir === "in" ? Math.min(1, p * 2) : 1 - e) * 0.55;
       ctx.globalCompositeOperation = "lighter";
       ctx.drawImage(canvas, -jitter, Math.sin(p * 40) * 6);
       ctx.drawImage(canvas, jitter, -Math.sin(p * 33) * 6);
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = dir === "in" ? e : 1 - e;
-      ctx.drawImage(canvas, (Math.random() - 0.5) * jitter, 0);
+      ctx.drawImage(canvas, (noise(p, dir === "in" ? 1 : 2) - 0.5) * jitter, 0);
       break;
     }
     case "blinds": {
       const rows = 9;
       const rh = H / rows;
       for (let i = 0; i < rows; i++) {
-        const local = clamp01((p - (i / rows) * 0.35) / 0.65);
+        // Outgoing rows leave in the opposite order so the two never sit in
+        // exactly the same band at the same time.
+        const stagger = dir === "in" ? i / rows : (rows - 1 - i) / rows;
+        const local = clamp01((p - stagger * 0.35) / 0.65);
         const k = dir === "in" ? easeOut(local) : 1 - easeOut(local);
-        if (k <= 0) continue;
+        if (k <= 0.001) continue;
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, i * rh + (rh * (1 - k)) / 2, W, rh * k);
@@ -561,23 +566,33 @@ function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, ac
     }
     case "clock": {
       const a0 = -Math.PI / 2;
-      const sweep = (dir === "in" ? e : 1 - e) * Math.PI * 2;
-      if (sweep <= 0.001) break;
+      const sweep = e * Math.PI * 2;
+      const R = Math.hypot(W, H);
+      // The incoming layer owns the swept wedge; the outgoing keeps the rest.
+      const from = dir === "in" ? a0 : a0 + sweep;
+      const to = dir === "in" ? a0 + sweep : a0 + Math.PI * 2;
+      if (to - from <= 0.001) break;
       ctx.beginPath();
       ctx.moveTo(W / 2, H / 2);
-      ctx.arc(W / 2, H / 2, Math.hypot(W, H), a0, a0 + sweep);
+      ctx.arc(W / 2, H / 2, R, from, to);
       ctx.closePath();
       ctx.clip();
       ctx.drawImage(canvas, 0, 0);
       break;
     }
     case "swipe": {
-      const edge = (dir === "in" ? e : 1 - e) * H;
-      ctx.beginPath();
-      ctx.rect(0, H - edge, W, edge);
+      const edge = e * H;
+      // Incoming fills from the bottom edge up, outgoing keeps what's left.
+      if (dir === "in") {
+        ctx.beginPath();
+        ctx.rect(0, H - edge, W, edge);
+      } else {
+        ctx.beginPath();
+        ctx.rect(0, 0, W, H - edge);
+      }
       ctx.clip();
       ctx.drawImage(canvas, 0, 0);
-      if (dir === "in" && p < 0.9) {
+      if (dir === "in" && p < 0.98) {
         ctx.fillStyle = accent;
         ctx.globalAlpha = 0.9;
         ctx.fillRect(0, H - edge, W, 14);
@@ -589,6 +604,7 @@ function place(ctx: CanvasRenderingContext2D, kind: TransitionId, slot: Slot, ac
   }
   ctx.restore();
 }
+
 
 /** Full-frame accents that sell the cut (light burst, tape tear, shake). */
 function transitionOverlay(ctx: CanvasRenderingContext2D, kind: TransitionId, p: number, accent: string) {
