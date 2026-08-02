@@ -12,6 +12,11 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const DIRECT_UPLOAD_LIMIT = 42 * 1024 * 1024;
 const VIDEO_CHUNK_SIZE = 32 * 1024 * 1024;
+// A single HTTPS upload stream tops out long before a gigabit line does, so the
+// only way to actually use a 2.8 Gbps link is to keep many parts in flight.
+const UPLOAD_PARALLEL = 8;
+const CHUNK_UPLOAD_RETRIES = 4;
+
 
 type Canceller = { cancelled: boolean; abort?: () => void };
 
