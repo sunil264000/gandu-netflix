@@ -218,7 +218,15 @@ function fontString(tpl: Template, size: number) {
   return `${tpl.weight} ${size}px ${tpl.font}`;
 }
 
-function drawCaption(ctx: CanvasRenderingContext2D, s: ReelState, item: Timed, t: number) {
+function drawCaption(
+  ctx: CanvasRenderingContext2D,
+  s: ReelState,
+  item: Timed,
+  t: number,
+  // `plain` skips the built-in fade in/out because a scene transition is
+  // already handling the blend for this frame.
+  opts: { plain?: boolean } = {},
+) {
   const tpl = s.template;
   // Small head start so the very first frame of a scene is already legible
   // rather than a blank fade-in — matters for the paused preview and thumbnails.
@@ -249,7 +257,7 @@ function drawCaption(ctx: CanvasRenderingContext2D, s: ReelState, item: Timed, t
   const perWord = Math.min(0.13, (dur * 0.55) / Math.max(1, total));
   const inFade = clamp01(local / 0.22);
   const outFade = clamp01((item.end - t) / 0.28);
-  const groupAlpha = Math.min(inFade, outFade);
+  const groupAlpha = opts.plain ? 1 : Math.min(inFade, outFade);
 
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
