@@ -90,6 +90,9 @@ function Watch() {
   const _related = useServerFn(listVideos);
   const _isFav = useServerFn(isFavorite);
   const _toggleFav = useServerFn(toggleFavorite);
+  const _attachAudio = useServerFn(attachAudioTrack);
+  const aacRunning = useRef(false);
+  const [aac, setAac] = useState<{ pct: number; stage: string } | null>(null);
   const [fav, setFav] = useState(false);
   const [autoplay, setAutoplay] = useState(true);
   const [showTip, setShowTip] = useState(true);
