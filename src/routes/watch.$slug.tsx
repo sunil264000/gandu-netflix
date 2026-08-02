@@ -90,6 +90,8 @@ function Watch() {
   const _progress = useServerFn(saveProgress);
   const _bump = useServerFn(bumpView);
   const _related = useServerFn(listVideos);
+  const _search = useServerFn(searchVideos);
+
   const _isFav = useServerFn(isFavorite);
   const _toggleFav = useServerFn(toggleFavorite);
   const _attachAudio = useServerFn(attachAudioTrack);
