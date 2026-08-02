@@ -1,7 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { Play, Clock, Eye } from "lucide-react";
+import { Play, Clock, Eye, Layers } from "lucide-react";
 import { motion } from "framer-motion";
 import { SmartThumb } from "@/components/SmartThumb";
+import { groupBySeries, type SeriesGroup } from "@/lib/series";
+
 
 export type VideoCardData = {
   id: string;
