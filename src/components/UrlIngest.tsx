@@ -18,6 +18,86 @@ function fmtBytes(b: number) {
   return (b / 1e3).toFixed(0) + " KB";
 }
 
+function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
+  const [displayBytes, setDisplayBytes] = useState(Number(j.bytes_done));
+
+  useEffect(() => {
+    setDisplayBytes(Number(j.bytes_done));
+  }, [j.bytes_done]);
+
+  useEffect(() => {
+    if (j.status !== "running" || !j.last_speed_bps || j.last_speed_bps <= 0) return;
+    let lastTime = performance.now();
+    let frameId: number;
+    const tick = (now: number) => {
+      const deltaSec = (now - lastTime) / 1000;
+      lastTime = now;
+      setDisplayBytes(prev => Math.min(Number(j.total_bytes), prev + j.last_speed_bps * deltaSec));
+      frameId = requestAnimationFrame(tick);
+    };
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [j.status, j.last_speed_bps, j.total_bytes]);
+
+  const pct = j.total_bytes ? Math.min(100, (displayBytes / Number(j.total_bytes)) * 100) : 0;
+  const speed = j.last_speed_bps ? `${(j.last_speed_bps / 1e6).toFixed(1)} MB/s` : "";
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{j.file_name}</p>
+          <p className="text-[11px] text-white/45">
+            {fmtBytes(displayBytes)} / {fmtBytes(Number(j.total_bytes))}
+            {speed ? ` · ${speed}` : ""} · {post[j.id] ?? j.status}
+          </p>
+        </div>
+        <span className="text-xs tabular-nums text-white/70">{pct.toFixed(1)}%</span>
+        {(j.status === "error" || j.status === "cancelled") && (
+          <button
+            onClick={async () => {
+              try {
+                for (;;) {
+                  const r = await _pump({ data: { jobId: j.id } });
+                  qc.invalidateQueries({ queryKey: ["admin:ingest"] });
+                  if (r.status !== "running") break;
+                }
+                qc.invalidateQueries({ queryKey: ["admin:videos"] });
+                onDone();
+              } catch {
+                qc.invalidateQueries({ queryKey: ["admin:ingest"] });
+              }
+            }}
+            className="rounded-md border border-white/10 px-2 py-1 text-[11px] font-medium text-white/70 hover:bg-white/10"
+          >
+            Resume
+          </button>
+        )}
+        <button
+          onClick={async () => {
+            const wipe = j.status !== "done";
+            if (wipe && !confirm("Cancel this import and delete what was fetched?")) return;
+            await _cancel({ data: { jobId: j.id, deleteVideo: wipe } });
+            qc.invalidateQueries({ queryKey: ["admin:ingest"] });
+            onDone();
+          }}
+          className="rounded p-1.5 text-white/40 hover:bg-red-500/10 hover:text-red-400"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+        <div
+          className={`h-full rounded-full transition-all duration-75 ${j.status === "error" ? "bg-red-500" : "bg-gradient-to-r from-red-500 to-orange-400"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {j.error && <p className="mt-1 truncate text-[11px] text-red-400">{j.error}</p>}
+    </div>
+  );
+}
+
 /**
  * Server-side importer: paste a direct download link and the server pulls the
  * file straight into storage. The browser only sends tiny "pump" requests, so
@@ -198,64 +278,9 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
 
       {list.length > 0 && (
         <div className="mt-4 space-y-2">
-          {list.map((j) => {
-            const pct = j.total_bytes ? Math.min(100, (Number(j.bytes_done) / Number(j.total_bytes)) * 100) : 0;
-            const speed = j.last_speed_bps ? `${(j.last_speed_bps / 1e6).toFixed(1)} MB/s` : "";
-            return (
-              <div key={j.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="flex items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{j.file_name}</p>
-                    <p className="text-[11px] text-white/45">
-                      {fmtBytes(Number(j.bytes_done))} / {fmtBytes(Number(j.total_bytes))}
-                      {speed ? ` · ${speed}` : ""} · {post[j.id] ?? j.status}
-                    </p>
-                  </div>
-                  <span className="text-xs tabular-nums text-white/70">{pct.toFixed(1)}%</span>
-                  {(j.status === "error" || j.status === "cancelled") && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          for (;;) {
-                            const r = await _pump({ data: { jobId: j.id } });
-                            qc.invalidateQueries({ queryKey: ["admin:ingest"] });
-                            if (r.status !== "running") break;
-                          }
-                          qc.invalidateQueries({ queryKey: ["admin:videos"] });
-                          onDone();
-                        } catch {
-                          qc.invalidateQueries({ queryKey: ["admin:ingest"] });
-                        }
-                      }}
-                      className="rounded-md border border-white/10 px-2 py-1 text-[11px] font-medium text-white/70 hover:bg-white/10"
-                    >
-                      Resume
-                    </button>
-                  )}
-                  <button
-                    onClick={async () => {
-                      const wipe = j.status !== "done";
-                      if (wipe && !confirm("Cancel this import and delete what was fetched?")) return;
-                      await _cancel({ data: { jobId: j.id, deleteVideo: wipe } });
-                      qc.invalidateQueries({ queryKey: ["admin:ingest"] });
-                      onDone();
-                    }}
-                    className="rounded p-1.5 text-white/40 hover:bg-red-500/10 hover:text-red-400"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={`h-full rounded-full ${j.status === "error" ? "bg-red-500" : "bg-gradient-to-r from-red-500 to-orange-400"}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                {j.error && <p className="mt-1 truncate text-[11px] text-red-400">{j.error}</p>}
-              </div>
-            );
-          })}
+          {list.map((j) => (
+            <SmoothJobItem key={j.id} j={j} post={post} qc={qc} _pump={_pump} _cancel={_cancel} onDone={onDone} />
+          ))}
         </div>
       )}
     </section>
