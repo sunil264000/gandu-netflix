@@ -468,9 +468,13 @@ export const cancelIngest = createServerFn({ method: "POST" })
       if (job.video_id) {
         await sb.from("favorites").delete().eq("video_id", job.video_id);
         await sb.from("watch_history").delete().eq("video_id", job.video_id);
+      }
+      // Delete ingest_job FIRST to satisfy the foreign key constraint
+      await sb.from("ingest_jobs").delete().eq("id", job.id);
+      if (job.video_id) {
+        // Now it's safe to delete the video
         await sb.from("videos").delete().eq("id", job.video_id);
       }
-      await sb.from("ingest_jobs").delete().eq("id", job.id);
     }
     return { ok: true };
   });
