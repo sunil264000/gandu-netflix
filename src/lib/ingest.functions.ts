@@ -10,7 +10,7 @@ import { z } from "zod";
 import { resolveGDriveUrl } from "@/lib/gdrive.functions";
 
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB parts for maximum concurrent throughput without OOM
-const FETCH_RETRIES = 4;
+const FETCH_RETRIES = 6;
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
 
 async function admin() {
@@ -176,7 +176,7 @@ export const startUrlIngest = createServerFn({ method: "POST" })
     return executeStartUrlIngest(data.url, data.title, data.categoryId);
   });
 
-async function fetchPart(url: string, start: number, end: number): Promise<ArrayBuffer> {
+async function fetchPart(url: string, start: number, end: number, isGDrive = false): Promise<ArrayBuffer> {
   const want = end - start + 1;
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < FETCH_RETRIES; attempt += 1) {
@@ -218,7 +218,11 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
       
       if (!res.ok && res.status !== 206) {
         if (res.body) await res.body.cancel().catch(() => {});
-        // 401/403/410 = link expired or revoked, retrying won't help
+        // For Google Drive, 403 usually means rate limit — retry with longer delay
+        if ((res.status === 403 || res.status === 429) && isGDrive) {
+          throw new Error(`Google Drive rate limited (${res.status}), retrying...`);
+        }
+        // 401/403/410 on non-GDrive = link expired or revoked, retrying won't help
         if (res.status === 401 || res.status === 403 || res.status === 410) {
           throw Object.assign(
             new Error(`Source link returned ${res.status} — the download link has expired. Please start a new import with a fresh link.`),
@@ -266,7 +270,9 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
     } catch (e: any) {
       if (e?.noRetry) throw e;
       lastErr = e;
-      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      // GDrive 403 = rate limit, use longer backoff (3-12s). Normal errors = shorter (0.4-1.6s).
+      const delay = isGDrive ? 3000 * (attempt + 1) : 400 * (attempt + 1);
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
   throw new Error(`part ${start}-${end} failed: ${String(lastErr)}`);
@@ -296,6 +302,7 @@ export async function executePump(jobId: string) {
 
       const isNoRange = job.source_url.endsWith("#norange");
         const cleanUrl = job.source_url.replace(/#norange$/, "");
+        const isGDrive = cleanUrl.startsWith("gdrive:");
         const sourceUrl = resolveGDriveUrl(cleanUrl) ?? cleanUrl;
       if (isNoRange) {
         // For non-range hosts, we MUST fetch the stream linearly and upload parts on the fly.
@@ -423,7 +430,7 @@ export async function executePump(jobId: string) {
             const end = Math.min(total - 1, start + cs - 1);
 
             const p = (async () => {
-              const buf = await fetchPart(sourceUrl, start, end);
+              const buf = await fetchPart(sourceUrl, start, end, isGDrive);
               bytesThisPump += buf.byteLength;
               const uploadCtrl = new AbortController();
               const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
