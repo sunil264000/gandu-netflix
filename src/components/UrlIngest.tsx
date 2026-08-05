@@ -32,34 +32,33 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
   const [displayBytes, setDisplayBytes] = useState(Number(j.bytes_done));
   const [displaySpeed, setDisplaySpeed] = useState(Number(j.last_speed_bps ?? 0));
   const [showConfirm, setShowConfirm] = useState(false);
+  const smoothSpeed = useRef(Number(j.last_speed_bps ?? 0));
+  const lastTextUpdate = useRef(0);
 
   useEffect(() => {
     setDisplayBytes(Number(j.bytes_done));
   }, [j.bytes_done]);
 
   useEffect(() => {
-    // If the database row hasn't been updated in 20 seconds, the server process likely crashed (OOM) or stalled.
     const isStalled = j.updated_at ? (Date.now() - new Date(j.updated_at).getTime() > 20000) : false;
     
     if (j.status !== "running" || !j.last_speed_bps || j.last_speed_bps <= 0 || isStalled) return;
     let lastTime = performance.now();
     let frameId: number;
-    let currentSpeed = displaySpeed;
 
     const tick = (now: number) => {
       const deltaSec = (now - lastTime) / 1000;
       lastTime = now;
       
-      // Animate progress bar smoothly
+      // Progress bar: animate smoothly every frame
       setDisplayBytes(prev => Math.min(Number(j.total_bytes), prev + j.last_speed_bps * deltaSec));
       
-      // Animate speed number smoothly with a tiny realistic flutter (±2%)
-      const targetSpeed = j.last_speed_bps;
-      const jitter = targetSpeed * (Math.random() * 0.04 - 0.02);
-      const flutteredTarget = targetSpeed + jitter;
-      
-      currentSpeed = currentSpeed + (flutteredTarget - currentSpeed) * 0.15;
-      setDisplaySpeed(currentSpeed);
+      // Speed text: heavy exponential smoothing, only push to React every 500ms
+      smoothSpeed.current = smoothSpeed.current + (j.last_speed_bps - smoothSpeed.current) * 0.05;
+      if (now - lastTextUpdate.current > 500) {
+        lastTextUpdate.current = now;
+        setDisplaySpeed(smoothSpeed.current);
+      }
       
       frameId = requestAnimationFrame(tick);
     };
