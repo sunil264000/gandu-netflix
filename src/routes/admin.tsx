@@ -167,15 +167,15 @@ function Admin() {
           <h2 className="text-xl font-bold mb-3">Videos ({vids.data?.length ?? 0})</h2>
           <div className="space-y-2">
             {(vids.data ?? []).map((v) => (
-              <div key={v.id} className="flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/10">
-                <div className="w-24 aspect-video rounded overflow-hidden bg-white/10 flex-shrink-0">
+              <div key={v.id} className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 rounded-xl bg-white/5 border border-white/10">
+                <div className="w-full sm:w-24 aspect-video rounded overflow-hidden bg-white/10 shrink-0">
                   {v.thumbnail_url ? <img src={v.thumbnail_url} className="w-full h-full object-cover" /> : null}
                 </div>
                 <div className="flex-1 min-w-0">
                   {editing === v.id ? (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap sm:flex-nowrap gap-2">
                       <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
-                        className="flex-1 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm" />
+                        className="flex-1 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm min-w-[200px]" />
                       <button onClick={async () => { await _upd({ data: { id: v.id, title: editTitle } }); setEditing(null); refresh(); }}
                         className="px-3 py-1 rounded bg-red-500 text-sm">Save</button>
                       <button onClick={() => setEditing(null)} className="px-3 py-1 rounded bg-white/10 text-sm">Cancel</button>
@@ -187,17 +187,19 @@ function Admin() {
                     </>
                   )}
                 </div>
-                <AudioTrackControl
-                  videoId={v.id}
-                  sizeBytes={Number(v.size_bytes)}
-                  fileName={(v.storage_path?.split("/").pop() ?? v.title) as string}
-                  hasTrack={!!(v as { audio_path?: string | null }).audio_path}
-                  onDone={refresh}
-                />
-                <button onClick={() => nav({ to: "/watch/$slug", params: { slug: v.slug ?? v.id } })}
-                  className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-sm">Watch</button>
-                <button onClick={async () => { if (confirm(`Delete "${v.title}"?`)) { await _del({ data: { id: v.id } }); refresh(); } }}
-                  className="p-2 rounded text-white/60 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <AudioTrackControl
+                    videoId={v.id}
+                    sizeBytes={Number(v.size_bytes)}
+                    fileName={(v.storage_path?.split("/").pop() ?? v.title) as string}
+                    hasTrack={!!(v as { audio_path?: string | null }).audio_path}
+                    onDone={refresh}
+                  />
+                  <button onClick={() => nav({ to: "/watch/$slug", params: { slug: v.slug || v.id } })}
+                    className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-sm">Watch</button>
+                  <button onClick={async () => { if (confirm(`Delete "${v.title}"?`)) { await _del({ data: { id: v.id } }); refresh(); } }}
+                    className="p-2 rounded text-white/60 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>
+                </div>
               </div>
             ))}
           </div>

@@ -7,6 +7,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { resolveGDriveUrl } from "@/lib/gdrive.functions";
 
 const CHUNK_SIZE = 24 * 1024 * 1024; // 24 MB parts (matches the streaming reader)
 const PUMP_BUDGET_MS = 18_000;
@@ -240,16 +241,23 @@ export const pumpIngest = createServerFn({ method: "POST" })
           batch.map(async (index) => {
             const start = index * cs;
             const end = Math.min(total - 1, start + cs - 1);
-            const buf = await fetchPart(job.source_url, start, end);
+            const sourceUrl = resolveGDriveUrl(job.source_url) ?? job.source_url;
+            const buf = await fetchPart(sourceUrl, start, end);
             bytesThisPump += buf.byteLength;
-            const { error: upErr } = await sb.storage
-              .from("videos")
-              .upload(partPath(job.storage_path, index), new Blob([buf]), {
-                upsert: true,
-                contentType: "application/octet-stream",
-                cacheControl: "31536000",
-              });
-            if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
+            const uploadCtrl = new AbortController();
+            const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
+            try {
+              const { error: upErr } = await sb.storage
+                .from("videos")
+                .upload(partPath(job.storage_path, index), new Blob([buf]), {
+                  upsert: true,
+                  contentType: "application/octet-stream",
+                  cacheControl: "31536000",
+                });
+              if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
+            } finally {
+              clearTimeout(uploadTimer);
+            }
           }),
         );
 

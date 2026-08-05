@@ -73,6 +73,13 @@ const VIDEO_CACHE_MS = 60_000;
 const seqCache = new Map<string, { nextByte: number; window: number; exp: number }>();
 const SEQ_CACHE_MS = 120_000;
 
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of videoCache) if (v.exp <= now) videoCache.delete(k);
+  for (const [k, v] of urlCache) if (v.exp <= now) urlCache.delete(k);
+  for (const [k, v] of seqCache) if (v.exp <= now) seqCache.delete(k);
+}, 60_000);
+
 // Live concurrency on this isolate. Used to keep hundreds of simultaneous
 // viewers fair: window size and upstream fan-out both taper as load rises.
 let activeStreams = 0;

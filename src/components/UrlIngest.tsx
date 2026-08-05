@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Loader2, Trash2, Download } from "lucide-react";
+import { Link2, Loader2, Trash2, Download, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { startUrlIngest, pumpIngest, listIngestJobs, cancelIngest } from "@/lib/ingest.functions";
 import { startGDriveIngest } from "@/lib/gdrive.functions";
 import { autoPosterForVideo } from "@/lib/posters.functions";
@@ -35,6 +37,8 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [starting, setStarting] = useState(false);
+  const [gdriveScanning, setGdriveScanning] = useState(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const pumping = useRef<Set<string>>(new Set());
 
@@ -112,14 +116,25 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim()) return;
+    const cleanUrl = url.trim();
+    if (!cleanUrl) return;
     setStarting(true);
     setErr(null);
+    setToastMsg(null);
+    const isGDrive = cleanUrl.includes("drive.google.com") || cleanUrl.includes("drive.usercontent.google.com");
+    if (isGDrive) {
+      setGdriveScanning(true);
+    }
+
     try {
-      if (url.includes("drive.google.com") || url.includes("drive.usercontent.google.com")) {
-        await _startGDrive({ data: { url: url.trim(), categoryId } });
+      if (isGDrive) {
+        const res = await _startGDrive({ data: { url: cleanUrl, categoryId } });
+        const count = res?.importedCount ?? 0;
+        const msg = `Found ${count} video${count === 1 ? "" : "s"} — importing...`;
+        toast.success(msg);
+        setToastMsg(msg);
       } else {
-        await _start({ data: { url: url.trim(), title: title.trim() || undefined, categoryId } });
+        await _start({ data: { url: cleanUrl, title: title.trim() || undefined, categoryId } });
       }
       setUrl("");
       setTitle("");
@@ -129,6 +144,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
       setErr(e2 instanceof Error ? e2.message : "Could not start the import");
     } finally {
       setStarting(false);
+      setGdriveScanning(false);
     }
   };
 
@@ -136,6 +152,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
 
   return (
     <section>
+      <Toaster />
       <div className="mb-3 flex items-center gap-2">
         <Link2 className="h-5 w-5 text-red-400" />
         <h2 className="text-xl font-bold">Import from link</h2>
@@ -162,9 +179,21 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
           className="flex items-center justify-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold disabled:opacity-50"
         >
           {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          Import
+          {gdriveScanning ? "Scanning..." : "Import"}
         </button>
       </form>
+      {gdriveScanning && (
+        <div className="mt-2.5 flex items-center gap-2 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+          <Loader2 className="h-4 w-4 animate-spin shrink-0 text-amber-400" />
+          <span>Scanning Google Drive folder...</span>
+        </div>
+      )}
+      {toastMsg && (
+        <div className="mt-2.5 flex items-center gap-2 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
       {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
 
       {list.length > 0 && (

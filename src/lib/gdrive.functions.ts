@@ -1,3 +1,6 @@
+// Google Drive folder/file import: resolves a public Drive link into individual
+// video files and queues them for the existing chunked ingest pipeline.
+
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
@@ -20,14 +23,115 @@ function storageSafe(n: string) {
   );
 }
 
-function extractDriveId(url: string) {
+function extractDriveId(url: string): { id: string; type: "folder" | "file" } | null {
   const m1 = url.match(/\/folders\/([a-zA-Z0-9_-]+)/);
-  if (m1) return m1[1];
-  const m2 = url.match(/id=([a-zA-Z0-9_-]+)/);
-  if (m2) return m2[1];
+  if (m1) return { id: m1[1]!, type: "folder" };
   const m3 = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-  if (m3) return m3[1];
+  if (m3) return { id: m3[1]!, type: "file" };
+  const m2 = url.match(/id=([a-zA-Z0-9_-]+)/);
+  if (m2) return { id: m2[1]!, type: "file" };
   return null;
+}
+
+function getApiKey(): string {
+  const apiKey = process.env.GOOGLE_DRIVE_API_KEY;
+  if (!apiKey) {
+    throw new Error("GOOGLE_DRIVE_API_KEY environment variable is not set. Please configure it in your environment.");
+  }
+  return apiKey;
+}
+
+type DriveFile = { id: string; name: string; size: number; mimeType: string; path: string };
+
+/**
+ * Recursively list all video files inside a Google Drive folder,
+ * handling pagination (nextPageToken) and subfolders.
+ */
+async function listDriveFolder(
+  folderId: string,
+  apiKey: string,
+  pathPrefix: string = "",
+  depth: number = 0,
+): Promise<DriveFile[]> {
+  if (depth > 10) return []; // safety limit to prevent infinite recursion
+
+  const files: DriveFile[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({
+      q: `'${folderId}' in parents and trashed=false`,
+      key: apiKey,
+      fields: "nextPageToken,files(id,name,mimeType,size)",
+      pageSize: "1000",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`);
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Google Drive folder: ${res.statusText} - ${err}`);
+    }
+
+    const data = await res.json();
+
+    for (const f of data.files || []) {
+      if (f.mimeType === "application/vnd.google-apps.folder") {
+        // Recurse into subfolder
+        const subPath = pathPrefix ? `${pathPrefix}/${f.name}` : f.name;
+        const subFiles = await listDriveFolder(f.id, apiKey, subPath, depth + 1);
+        files.push(...subFiles);
+      } else if (f.mimeType?.startsWith("video/") && f.size) {
+        files.push({
+          id: f.id,
+          name: f.name,
+          size: Number(f.size),
+          mimeType: f.mimeType,
+          path: pathPrefix,
+        });
+      }
+    }
+
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return files;
+}
+
+async function getFolderName(folderId: string, apiKey: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${folderId}?key=${apiKey}&fields=name`,
+    );
+    if (res.ok) {
+      const meta = await res.json();
+      if (meta.name) return meta.name;
+    }
+  } catch {
+    // ignore
+  }
+  return "Course";
+}
+
+/**
+ * Build a download URL for the ingest pump. The API key is NOT embedded in the
+ * stored URL — instead, a special `gdrive:` prefix signals pumpIngest to resolve
+ * the key at download time from the environment.
+ */
+function makeDownloadRef(fileId: string): string {
+  return `gdrive:${fileId}`;
+}
+
+/**
+ * At pump time, resolve a gdrive: reference to an actual download URL.
+ * This keeps the API key out of the database.
+ */
+export function resolveGDriveUrl(sourceUrl: string): string | null {
+  if (!sourceUrl.startsWith("gdrive:")) return null;
+  const fileId = sourceUrl.slice(7);
+  const apiKey = process.env.GOOGLE_DRIVE_API_KEY;
+  if (!apiKey) return null;
+  return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
 }
 
 export const startGDriveIngest = createServerFn({ method: "POST" })
@@ -40,51 +144,33 @@ export const startGDriveIngest = createServerFn({ method: "POST" })
       .parse(i),
   )
   .handler(async ({ data }) => {
-    const driveId = extractDriveId(data.url);
-    if (!driveId) throw new Error("Could not extract a valid Google Drive folder or file ID from the URL.");
+    const parsed = extractDriveId(data.url);
+    if (!parsed) throw new Error("Could not extract a valid Google Drive folder or file ID from the URL.");
 
-    const apiKey = process.env.GOOGLE_DRIVE_API_KEY;
-    if (!apiKey) {
-      throw new Error("GOOGLE_DRIVE_API_KEY environment variable is not set. Please configure it in your environment.");
-    }
-
+    const apiKey = getApiKey();
     const sb = await admin();
-    const isFolder = data.url.includes("/folders/");
-    const filesToImport: { id: string; name: string; size: number; mimeType: string }[] = [];
+    const filesToImport: DriveFile[] = [];
     let folderName = "Course";
 
-    if (isFolder) {
-      // Get folder name
-      try {
-        const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${driveId}?key=${apiKey}&fields=name`);
-        if (metaRes.ok) {
-          const meta = await metaRes.json();
-          if (meta.name) folderName = meta.name;
-        }
-      } catch (e) {
-        // ignore
-      }
-
-      // List files inside folder
-      const listUrl = `https://www.googleapis.com/drive/v3/files?q='${driveId}'+in+parents+and+trashed=false&key=${apiKey}&fields=files(id,name,mimeType,size)&pageSize=100`;
-      const res = await fetch(listUrl);
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Failed to list Google Drive folder: ${res.statusText} - ${err}`);
-      }
-      const listData = await res.json();
-      for (const f of listData.files || []) {
-        if (f.mimeType && f.mimeType.startsWith("video/") && f.size) {
-          filesToImport.push({ id: f.id, name: f.name, size: Number(f.size), mimeType: f.mimeType });
-        }
-      }
+    if (parsed.type === "folder") {
+      folderName = await getFolderName(parsed.id, apiKey);
+      const found = await listDriveFolder(parsed.id, apiKey);
+      filesToImport.push(...found);
     } else {
       // Single file
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${driveId}?key=${apiKey}&fields=id,name,mimeType,size`);
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${parsed.id}?key=${apiKey}&fields=id,name,mimeType,size`,
+      );
       if (!res.ok) throw new Error("Failed to fetch Google Drive file metadata");
       const f = await res.json();
       if (f.size) {
-        filesToImport.push({ id: f.id, name: f.name, size: Number(f.size), mimeType: f.mimeType || "video/mp4" });
+        filesToImport.push({
+          id: f.id,
+          name: f.name,
+          size: Number(f.size),
+          mimeType: f.mimeType || "video/mp4",
+          path: "",
+        });
       }
     }
 
@@ -92,25 +178,30 @@ export const startGDriveIngest = createServerFn({ method: "POST" })
       throw new Error("No video files found to import. Ensure the link is public and contains video files.");
     }
 
-    // Sort files by name to order them nicely as parts
-    filesToImport.sort((a, b) => a.name.localeCompare(b.name));
+    // Sort by path then name for logical ordering
+    filesToImport.sort((a, b) => {
+      const pathCmp = a.path.localeCompare(b.path);
+      return pathCmp !== 0 ? pathCmp : a.name.localeCompare(b.name);
+    });
 
     const results = [];
 
     for (let i = 0; i < filesToImport.length; i++) {
       const f = filesToImport[i]!;
       const ext = f.name.split(".").pop()?.toLowerCase() ?? "mp4";
-      
-      // If we are importing a folder, group them using a series marker so they show up as a Course.
-      const title = isFolder 
-        ? `${folderName} - Part ${i + 1} - ${f.name.replace(/\.[^/.]+$/, "")}`
-        : f.name.replace(/\.[^/.]+$/, "");
+
+      // Build title: "CourseName / SubFolder - Part X - FileName"
+      const pathLabel = f.path ? `${f.path} - ` : "";
+      const title =
+        parsed.type === "folder"
+          ? `${folderName} - ${pathLabel}Part ${i + 1} - ${f.name.replace(/\.[^/.]+$/, "")}`
+          : f.name.replace(/\.[^/.]+$/, "");
 
       const chunkCount = Math.ceil(f.size / CHUNK_SIZE);
       const storagePath = `ingest/${crypto.randomUUID()}/${storageSafe(f.name)}`;
-      
-      // Use alt=media for downloading
-      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${f.id}?alt=media&key=${apiKey}`;
+
+      // Store a gdrive: reference instead of embedding the API key
+      const downloadRef = makeDownloadRef(f.id);
 
       const { data: video, error: vErr } = await sb
         .from("videos")
@@ -134,7 +225,7 @@ export const startGDriveIngest = createServerFn({ method: "POST" })
         .from("ingest_jobs")
         .insert({
           video_id: video.id,
-          source_url: downloadUrl,
+          source_url: downloadRef,
           file_name: f.name,
           storage_path: storagePath,
           total_bytes: f.size,

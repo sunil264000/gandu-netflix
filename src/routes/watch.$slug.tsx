@@ -52,7 +52,7 @@ type UpNextItem = {
 function UpNextCard({ v }: { v: UpNextItem }) {
   const progress = v.position_sec && v.duration_sec ? Math.min(100, (v.position_sec / v.duration_sec) * 100) : 0;
   return (
-    <Link to="/watch/$slug" params={{ slug: v.slug ?? v.id }} className="flex gap-3 sm:gap-4 group">
+    <Link to="/watch/$slug" params={{ slug: v.slug || v.id }} className="flex gap-3 sm:gap-4 group">
       <div className="relative w-36 sm:w-44 aspect-video rounded-xl overflow-hidden bg-zinc-900 shrink-0 ring-1 ring-white/5 group-hover:ring-red-500/40 transition-all">
         {v.thumbnail_url ? (
           <img src={v.thumbnail_url} alt={v.title} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
@@ -142,7 +142,7 @@ function Watch() {
     if (!autoplay || !vid) return;
     // Inside a series, always roll into the next episode before anything else.
     const next = nextEpisode?.v ?? (related.data ?? []).find((v) => v.id !== vid.id);
-    if (next) setTimeout(() => nav({ to: "/watch/$slug", params: { slug: next.slug ?? next.id } }), 1200);
+    if (next) setTimeout(() => nav({ to: "/watch/$slug", params: { slug: next.slug || next.id } }), 1200);
   }, [related.data, vid, nav, autoplay, nextEpisode]);
 
 
@@ -203,7 +203,42 @@ function Watch() {
         </Link>
 
         {video.isLoading ? (
-          <div className="aspect-video w-full rounded-2xl sm:rounded-3xl bg-white/5 animate-pulse" />
+          <div className="grid grid-cols-12 gap-4 sm:gap-6 lg:gap-10 items-start">
+            <div className="col-span-12 lg:col-span-8 space-y-5 sm:space-y-8">
+              <div className="aspect-video w-full animate-pulse bg-white/10 rounded-2xl sm:rounded-3xl" />
+              <div className="space-y-4">
+                <div className="space-y-3">
+                  <div className="h-8 w-3/4 animate-pulse bg-white/10 rounded-2xl" />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="h-4 w-20 animate-pulse bg-white/10 rounded-2xl" />
+                    <div className="h-4 w-16 animate-pulse bg-white/10 rounded-2xl" />
+                    <div className="h-4 w-24 animate-pulse bg-white/10 rounded-2xl" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-3 py-4 border-y border-zinc-800/60">
+                  <div className="h-9 w-28 animate-pulse bg-white/10 rounded-full" />
+                  <div className="h-9 w-9 animate-pulse bg-white/10 rounded-full" />
+                </div>
+                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/40 border border-white/5 space-y-2.5">
+                  <div className="h-4 w-full animate-pulse bg-white/10 rounded-2xl" />
+                  <div className="h-4 w-5/6 animate-pulse bg-white/10 rounded-2xl" />
+                  <div className="h-4 w-4/6 animate-pulse bg-white/10 rounded-2xl" />
+                </div>
+              </div>
+            </div>
+            <aside className="col-span-12 lg:col-span-4 space-y-4">
+              <div className="h-4 w-24 animate-pulse bg-white/10 rounded-2xl mb-4" />
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex gap-3 sm:gap-4">
+                  <div className="w-36 sm:w-44 aspect-video rounded-xl animate-pulse bg-white/10 shrink-0" />
+                  <div className="flex flex-col gap-2 flex-1 pt-1">
+                    <div className="h-4 w-full animate-pulse bg-white/10 rounded-2xl" />
+                    <div className="h-3 w-2/3 animate-pulse bg-white/10 rounded-2xl" />
+                  </div>
+                </div>
+              ))}
+            </aside>
+          </div>
         ) : video.error || !vid ? (
           <div className="text-center py-20 text-white/60">Video not found.</div>
         ) : (
@@ -372,7 +407,7 @@ function Watch() {
                         <li key={e.v.id}>
                           <Link
                             to="/watch/$slug"
-                            params={{ slug: e.v.slug ?? e.v.id }}
+                            params={{ slug: e.v.slug || e.v.id }}
                             className={`flex items-center gap-3 rounded-xl px-2.5 py-2 transition-colors ${
                               active ? "bg-red-500/15 ring-1 ring-red-500/40" : "hover:bg-white/5"
                             }`}

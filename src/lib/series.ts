@@ -31,7 +31,7 @@ const PATTERNS: { re: RegExp; season: number; episode: number }[] = [
 const EP_ONLY = /\b(?:ep|episode|part|chapter|pt)[\s._-]*(\d{1,3})\b/i;
 
 export function normalizeKey(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return name.toLowerCase().replace(/[\s._-]+/g, " ").trim();
 }
 
 function cleanName(raw: string): string {

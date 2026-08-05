@@ -45,7 +45,7 @@ export function VideoCard({ v, index = 0 }: { v: VideoCardData; index?: number }
       whileHover={{ y: -6 }}
       className="group"
     >
-      <Link to="/watch/$slug" params={{ slug: v.slug ?? v.id }} className="block outline-none">
+      <Link to="/watch/$slug" params={{ slug: v.slug || v.id }} className="block outline-none">
         <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.03] shadow-[0_10px_30px_-18px_rgba(0,0,0,.9)] transition-all duration-500 group-hover:border-red-500/40 group-hover:shadow-[0_24px_60px_-24px_rgba(239,68,68,.55)]">
           <SmartThumb
             src={v.thumbnail_url}
@@ -125,7 +125,7 @@ export function SeriesCard({ g, index = 0 }: { g: SeriesGroup<VideoCardData>; in
       whileHover={{ y: -6 }}
       className="group"
     >
-      <Link to="/watch/$slug" params={{ slug: start.slug ?? start.id }} className="block outline-none">
+      <Link to="/watch/$slug" params={{ slug: start.slug || start.id }} className="block outline-none">
         <div className="relative">
           {/* stacked-cards edge, hints that this is a collection */}
           <div className="absolute -top-1.5 left-3 right-3 h-3 rounded-t-xl border border-white/[0.06] bg-white/[0.05]" />

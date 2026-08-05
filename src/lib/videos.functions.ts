@@ -37,6 +37,19 @@ async function signPath(sb: any, bucket: string, path: string | null) {
   return data?.signedUrl ?? null;
 }
 
+const signCache = new Map<string, { url: string; exp: number }>();
+const SIGN_CACHE_MS = 5 * 60 * 1000;
+async function signPathCached(sb: any, bucket: string, path: string | null) {
+  if (!path) return null;
+  const key = `${bucket}:${path}`;
+  const now = Date.now();
+  const hit = signCache.get(key);
+  if (hit && hit.exp > now) return hit.url;
+  const url = await signPath(sb, bucket, path);
+  if (url) signCache.set(key, { url, exp: now + SIGN_CACHE_MS });
+  return url;
+}
+
 export const listVideos = createServerFn({ method: "GET" })
   .inputValidator((i: { sort?: "new" | "az" | "large" | "views"; categoryId?: string | null; limit?: number; offset?: number } | undefined) =>
     z.object({
@@ -57,7 +70,7 @@ export const listVideos = createServerFn({ method: "GET" })
     const { data: rows, error } = await q;
     if (error) throw error;
     return Promise.all((rows as VideoRow[]).map(async (v) => ({
-      ...v, thumbnail_url: await signPath(sb, "thumbnails", v.thumbnail_path),
+      ...v, thumbnail_url: await signPathCached(sb, "thumbnails", v.thumbnail_path),
     })));
   });
 
@@ -71,7 +84,7 @@ export const searchVideos = createServerFn({ method: "GET" })
       .order("created_at", { ascending: false }).limit(60);
     if (error) throw error;
     return Promise.all((rows as VideoRow[]).map(async (v) => ({
-      ...v, thumbnail_url: await signPath(sb, "thumbnails", v.thumbnail_path),
+      ...v, thumbnail_url: await signPathCached(sb, "thumbnails", v.thumbnail_path),
     })));
   });
 
@@ -92,9 +105,9 @@ export const getVideo = createServerFn({ method: "GET" })
     if (!v) throw new Error("not_found");
     const streamUrl = v.upload_mode === "chunked"
       ? `/api/public/videos/stream?id=${encodeURIComponent(v.id)}`
-      : await signPath(sb, "videos", v.storage_path);
-    const thumbnailUrl = await signPath(sb, "thumbnails", v.thumbnail_path);
-    const audioUrl = await signPath(sb, "videos", (v as { audio_path?: string | null }).audio_path ?? null);
+      : await signPathCached(sb, "videos", v.storage_path);
+    const thumbnailUrl = await signPathCached(sb, "thumbnails", v.thumbnail_path);
+    const audioUrl = await signPathCached(sb, "videos", (v as { audio_path?: string | null }).audio_path ?? null);
     const { data: progress } = await sb.from("watch_history")
       .select("position_sec, completed").eq("user_id", ANON_USER).eq("video_id", v.id).maybeSingle();
     return {
@@ -154,7 +167,7 @@ export const listContinueWatching = createServerFn({ method: "GET" }).handler(as
   const rows = (data ?? []) as { position_sec: number; video: VideoRow | null }[];
   return Promise.all(rows.filter(r => r.video).map(async (r) => ({
     ...(r.video as VideoRow), position_sec: r.position_sec,
-    thumbnail_url: await signPath(sb, "thumbnails", r.video!.thumbnail_path),
+    thumbnail_url: await signPathCached(sb, "thumbnails", r.video!.thumbnail_path),
   })));
 });
 
@@ -166,7 +179,7 @@ export const listFavorites = createServerFn({ method: "GET" }).handler(async () 
   const rows = (data ?? []) as { video: VideoRow | null }[];
   return Promise.all(rows.filter(r => r.video).map(async (r) => ({
     ...(r.video as VideoRow),
-    thumbnail_url: await signPath(sb, "thumbnails", r.video!.thumbnail_path),
+    thumbnail_url: await signPathCached(sb, "thumbnails", r.video!.thumbnail_path),
   })));
 });
 
@@ -352,11 +365,13 @@ export const deleteCategory = createServerFn({ method: "POST" })
 
 export const storageStats = createServerFn({ method: "GET" }).handler(async () => {
   const sb = await admin();
+  const { count, error: countErr } = await sb.from("videos").select("*", { count: "exact", head: true });
+  if (countErr) throw countErr;
   const { data, error } = await sb.from("videos").select("size_bytes, view_count");
   if (error) throw error;
   const rows = (data ?? []) as { size_bytes: number; view_count: number }[];
   return {
-    total_videos: rows.length,
+    total_videos: count ?? rows.length,
     total_bytes: rows.reduce((s, r) => s + Number(r.size_bytes), 0),
     total_views: rows.reduce((s, r) => s + Number(r.view_count), 0),
   };

@@ -89,7 +89,7 @@ function Hero({ v }: { v: VideoCardData }) {
         <div className="flex flex-wrap items-center gap-3">
           <Link
             to="/watch/$slug"
-            params={{ slug: v.slug ?? v.id }}
+            params={{ slug: v.slug || v.id }}
             className="inline-flex items-center gap-2 rounded-full bg-red-500 px-7 py-3.5 text-sm font-semibold text-white shadow-[0_18px_45px_-15px_rgba(239,68,68,.9)] transition hover:-translate-y-0.5 hover:bg-red-400"
           >
             <Play className="h-4 w-4 fill-white" /> Play now
