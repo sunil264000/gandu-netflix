@@ -135,7 +135,7 @@ function CourseBlock({ courseName, courseData }: { courseName: string, courseDat
               </h3>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 {(videos as any[]).map((v) => (
-                  <VideoCard key={v.rawVideo.id} video={v.rawVideo} showBadge={false} hideTitle={false} />
+                  <VideoCard key={v.rawVideo.id} v={v.rawVideo} />
                 ))}
               </div>
             </div>
