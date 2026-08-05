@@ -34,7 +34,7 @@ function extractDriveId(url: string): { id: string; type: "folder" | "file" } | 
 }
 
 function getApiKey(): string {
-  const apiKey = process.env.GOOGLE_DRIVE_API_KEY;
+  const apiKey = typeof process !== 'undefined' ? process.env.GOOGLE_DRIVE_API_KEY : undefined;
   if (!apiKey) {
     throw new Error("GOOGLE_DRIVE_API_KEY environment variable is not set. Please configure it in your environment.");
   }
@@ -129,7 +129,7 @@ function makeDownloadRef(fileId: string): string {
 export function resolveGDriveUrl(sourceUrl: string): string | null {
   if (!sourceUrl.startsWith("gdrive:")) return null;
   const fileId = sourceUrl.slice(7);
-  const apiKey = process.env.GOOGLE_DRIVE_API_KEY;
+  const apiKey = typeof process !== 'undefined' ? process.env.GOOGLE_DRIVE_API_KEY : undefined;
   if (!apiKey) return null;
   return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
 }
