@@ -179,7 +179,8 @@ export const startUrlIngest = createServerFn({ method: "POST" })
 async function fetchPart(url: string, start: number, end: number, isGDrive = false): Promise<ArrayBuffer> {
   const want = end - start + 1;
   let lastErr: unknown = null;
-  for (let attempt = 0; attempt < FETCH_RETRIES; attempt += 1) {
+  const maxRetries = isGDrive ? 10 : FETCH_RETRIES;
+  for (let attempt = 0; attempt < maxRetries; attempt += 1) {
     try {
       let origin = "";
       try {
@@ -270,8 +271,8 @@ async function fetchPart(url: string, start: number, end: number, isGDrive = fal
     } catch (e: any) {
       if (e?.noRetry) throw e;
       lastErr = e;
-      // GDrive 403 = rate limit, use longer backoff (3-12s). Normal errors = shorter (0.4-1.6s).
-      const delay = isGDrive ? 3000 * (attempt + 1) : 400 * (attempt + 1);
+      // GDrive 403 = rate limit, use longer backoff (5-30s). Normal errors = shorter (0.4-2.4s).
+      const delay = isGDrive ? 5000 * (attempt + 1) : 400 * (attempt + 1);
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -296,14 +297,14 @@ export async function executePump(jobId: string) {
       let done = Number(job.chunks_done);
       const t0 = Date.now();
       let bytesThisPump = 0;
-      
-      // Dynamic memory protection: if it's an old 24MB job, cap at 2. If it's a new 8MB job, allow 8.
-      const parallelLimit = cs >= 20 * 1024 * 1024 ? 2 : 8;
 
+      // GDrive rate-limits aggressively, so cap at 2 parallel downloads.
+      // Old 24MB jobs also cap at 2 for memory safety. Everything else gets 8 for max speed.
       const isNoRange = job.source_url.endsWith("#norange");
-        const cleanUrl = job.source_url.replace(/#norange$/, "");
-        const isGDrive = cleanUrl.startsWith("gdrive:");
-        const sourceUrl = resolveGDriveUrl(cleanUrl) ?? cleanUrl;
+      const cleanUrl = job.source_url.replace(/#norange$/, "");
+      const isGDrive = cleanUrl.startsWith("gdrive:");
+      const sourceUrl = resolveGDriveUrl(cleanUrl) ?? cleanUrl;
+      const parallelLimit = isGDrive ? 2 : cs >= 20 * 1024 * 1024 ? 2 : 8;
       if (isNoRange) {
         // For non-range hosts, we MUST fetch the stream linearly and upload parts on the fly.
         // We will run until the stream completes, ignoring PUMP_BUDGET_MS.
