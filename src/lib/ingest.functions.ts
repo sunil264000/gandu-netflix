@@ -396,16 +396,23 @@ export const pumpIngest = createServerFn({ method: "POST" })
         if (bgError) throw bgError;
         finalStatus = done >= job.chunk_count ? "done" : "running";
       } else {
-        // Run multiple batches back-to-back to eliminate client round-trip latency.
-        // We run for up to 15 seconds to stay well within the Cloudflare Worker 30s timeout.
-        while (done < job.chunk_count && Date.now() - t0 < 15_000) {
-          const batch: number[] = [];
-          for (let k = 0; k < parallelLimit && done + k < job.chunk_count; k += 1) batch.push(done + k);
+        // Run multiple back-to-back using a sliding window for maximum throughput!
+        // This eliminates the "tail latency" of strict batches, ensuring we ALWAYS have
+        // `parallelLimit` active connections saturating the gigabit pipe.
+        const activeUploads: Promise<void>[] = [];
+        let nextIndex = done;
+        let bgError: any = null;
 
-          await Promise.all(
-            batch.map(async (index) => {
-              const start = index * cs;
-              const end = Math.min(total - 1, start + cs - 1);
+        while ((nextIndex < job.chunk_count || activeUploads.length > 0) && Date.now() - t0 < 15_000) {
+          if (bgError) throw bgError;
+
+          // Fill the sliding window up to parallelLimit
+          while (activeUploads.length < parallelLimit && nextIndex < job.chunk_count) {
+            const index = nextIndex++;
+            const start = index * cs;
+            const end = Math.min(total - 1, start + cs - 1);
+
+            const p = (async () => {
               const buf = await fetchPart(sourceUrl, start, end);
               bytesThisPump += buf.byteLength;
               const uploadCtrl = new AbortController();
@@ -422,20 +429,35 @@ export const pumpIngest = createServerFn({ method: "POST" })
               } finally {
                 clearTimeout(uploadTimer);
               }
-            }),
-          );
+            })().catch((e) => {
+              bgError = e;
+            });
 
-          done += batch.length;
-          const elapsed = (Date.now() - t0) / 1000;
-          await sb
-            .from("ingest_jobs")
-            .update({
-              chunks_done: done,
-              bytes_done: Math.min(total, done * cs),
-              last_speed_bps: elapsed > 0 ? bytesThisPump / elapsed : null,
-            })
-            .eq("id", job.id);
+            activeUploads.push(p);
+            p.finally(() => {
+              activeUploads.splice(activeUploads.indexOf(p), 1);
+            });
+          }
+
+          if (activeUploads.length > 0) {
+            await Promise.race(activeUploads);
+          }
         }
+
+        await Promise.all(activeUploads);
+        if (bgError) throw bgError;
+
+        // If Promise.all succeeds without bgError, then all chunks from `done` to `nextIndex - 1` have completed!
+        done = nextIndex;
+        const elapsed = (Date.now() - t0) / 1000;
+        await sb
+          .from("ingest_jobs")
+          .update({
+            chunks_done: done,
+            bytes_done: Math.min(total, done * cs),
+            last_speed_bps: elapsed > 0 ? bytesThisPump / elapsed : null,
+          })
+          .eq("id", job.id);
 
         finalStatus = done >= job.chunk_count ? "done" : "running";
       }
