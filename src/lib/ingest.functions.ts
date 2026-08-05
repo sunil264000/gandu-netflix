@@ -9,8 +9,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { resolveGDriveUrl } from "@/lib/gdrive.functions";
 
-const CHUNK_SIZE = 24 * 1024 * 1024; // 24 MB parts (matches the streaming reader)
-const PARALLEL_PARTS = 8;
+const CHUNK_SIZE = 16 * 1024 * 1024; // 16 MB parts
+const PARALLEL_PARTS = 24; // Extreme concurrency for max throughput
 const FETCH_RETRIES = 4;
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
 
