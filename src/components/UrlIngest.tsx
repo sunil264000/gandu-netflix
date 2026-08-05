@@ -20,6 +20,7 @@ function fmtBytes(b: number) {
 
 function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
   const [displayBytes, setDisplayBytes] = useState(Number(j.bytes_done));
+  const [displaySpeed, setDisplaySpeed] = useState(Number(j.last_speed_bps ?? 0));
 
   useEffect(() => {
     setDisplayBytes(Number(j.bytes_done));
@@ -29,10 +30,23 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
     if (j.status !== "running" || !j.last_speed_bps || j.last_speed_bps <= 0) return;
     let lastTime = performance.now();
     let frameId: number;
+    let currentSpeed = displaySpeed;
+
     const tick = (now: number) => {
       const deltaSec = (now - lastTime) / 1000;
       lastTime = now;
+      
+      // Animate progress bar smoothly
       setDisplayBytes(prev => Math.min(Number(j.total_bytes), prev + j.last_speed_bps * deltaSec));
+      
+      // Animate speed number smoothly with a tiny realistic flutter (±2%)
+      const targetSpeed = j.last_speed_bps;
+      const jitter = targetSpeed * (Math.random() * 0.04 - 0.02);
+      const flutteredTarget = targetSpeed + jitter;
+      
+      currentSpeed = currentSpeed + (flutteredTarget - currentSpeed) * 0.15;
+      setDisplaySpeed(currentSpeed);
+      
       frameId = requestAnimationFrame(tick);
     };
     frameId = requestAnimationFrame(tick);
@@ -40,7 +54,7 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
   }, [j.status, j.last_speed_bps, j.total_bytes]);
 
   const pct = j.total_bytes ? Math.min(100, (displayBytes / Number(j.total_bytes)) * 100) : 0;
-  const speed = j.last_speed_bps ? `${(j.last_speed_bps / 1e6).toFixed(1)} MB/s` : "";
+  const speed = displaySpeed > 0 ? `${(displaySpeed / 1e6).toFixed(1)} MB/s` : "";
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
