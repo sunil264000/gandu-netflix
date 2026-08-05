@@ -10,7 +10,6 @@ import { z } from "zod";
 import { resolveGDriveUrl } from "@/lib/gdrive.functions";
 
 const CHUNK_SIZE = 24 * 1024 * 1024; // 24 MB parts (matches the streaming reader)
-const PUMP_BUDGET_MS = 18_000;
 const PARALLEL_PARTS = 8;
 const FETCH_RETRIES = 4;
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
@@ -211,6 +210,8 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
 }
 
 
+export const activeIngests = new Map<string, AbortController>();
+
 export const pumpIngest = createServerFn({ method: "POST" })
   .inputValidator((i: { jobId: string }) => z.object({ jobId: z.string().uuid() }).parse(i))
   .handler(async ({ data }) => {
@@ -222,19 +223,27 @@ export const pumpIngest = createServerFn({ method: "POST" })
       return { status: job.status as string, chunksDone: job.chunks_done, chunkCount: job.chunk_count };
     }
 
+    if (activeIngests.has(job.id)) {
+      return { status: "running", chunksDone: job.chunks_done, chunkCount: job.chunk_count };
+    }
+
+    const abortCtrl = new AbortController();
+    activeIngests.set(job.id, abortCtrl);
+
     await sb.from("ingest_jobs").update({ status: "running", error: null }).eq("id", job.id);
 
-    const cs = Number(job.chunk_size_bytes);
-    const total = Number(job.total_bytes);
-    let done = Number(job.chunks_done);
-    const t0 = Date.now();
-    let bytesThisPump = 0;
+    // Run the actual ingest in the background
+    void (async () => {
+      try {
+        const cs = Number(job.chunk_size_bytes);
+        const total = Number(job.total_bytes);
+        let done = Number(job.chunks_done);
+        const t0 = Date.now();
+        let bytesThisPump = 0;
 
-    const isNoRange = job.source_url.endsWith("#norange");
-    const cleanUrl = job.source_url.replace(/#norange$/, "");
-    const sourceUrl = resolveGDriveUrl(cleanUrl) ?? cleanUrl;
-
-    try {
+        const isNoRange = job.source_url.endsWith("#norange");
+        const cleanUrl = job.source_url.replace(/#norange$/, "");
+        const sourceUrl = resolveGDriveUrl(cleanUrl) ?? cleanUrl;
       if (isNoRange) {
         // For non-range hosts, we MUST fetch the stream linearly and upload parts on the fly.
         // We will run until the stream completes, ignoring PUMP_BUDGET_MS.
@@ -258,6 +267,7 @@ export const pumpIngest = createServerFn({ method: "POST" })
         let bgError: any = null;
         
         const uploadChunk = async (buf: Uint8Array, index: number) => {
+          if (abortCtrl.signal.aborted) throw new Error("cancelled");
           const uploadCtrl = new AbortController();
           const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
           try {
@@ -281,6 +291,7 @@ export const pumpIngest = createServerFn({ method: "POST" })
         let nextIndex = done;
         
         while (nextIndex < job.chunk_count) {
+          if (abortCtrl.signal.aborted) throw new Error("cancelled");
           if (bgError) throw bgError;
           
           const { done: streamDone, value } = await reader.read();
@@ -334,12 +345,15 @@ export const pumpIngest = createServerFn({ method: "POST" })
         if (bgError) throw bgError;
         done = highestCompleted;
       } else {
-        while (done < job.chunk_count && Date.now() - t0 < PUMP_BUDGET_MS) {
+        while (done < job.chunk_count) {
+          if (abortCtrl.signal.aborted) throw new Error("cancelled");
+          
           const batch: number[] = [];
           for (let k = 0; k < PARALLEL_PARTS && done + k < job.chunk_count; k += 1) batch.push(done + k);
 
           await Promise.all(
             batch.map(async (index) => {
+              if (abortCtrl.signal.aborted) throw new Error("cancelled");
               const start = index * cs;
               const end = Math.min(total - 1, start + cs - 1);
               const buf = await fetchPart(sourceUrl, start, end);
@@ -373,28 +387,25 @@ export const pumpIngest = createServerFn({ method: "POST" })
             .eq("id", job.id);
         }
       }
+
+      const finished = done >= job.chunk_count;
+      if (finished) {
+        await sb
+          .from("ingest_jobs")
+          .update({ status: "done", chunks_done: done, bytes_done: total })
+          .eq("id", job.id);
+      }
     } catch (e) {
+      if (abortCtrl.signal.aborted) return;
       const message = e instanceof Error ? e.message : String(e);
       await sb.from("ingest_jobs").update({ status: "error", error: message.slice(0, 500) }).eq("id", job.id);
-      return { status: "error" as const, chunksDone: done, chunkCount: job.chunk_count, error: message };
+    } finally {
+      activeIngests.delete(job.id);
     }
+  })();
 
-    const finished = done >= job.chunk_count;
-    if (finished) {
-      await sb
-        .from("ingest_jobs")
-        .update({ status: "done", chunks_done: done, bytes_done: total })
-        .eq("id", job.id);
-    }
-
-    const elapsed = (Date.now() - t0) / 1000;
-    return {
-      status: finished ? ("done" as const) : ("running" as const),
-      chunksDone: done,
-      chunkCount: job.chunk_count as number,
-      speedBps: elapsed > 0 ? bytesThisPump / elapsed : 0,
-    };
-  });
+  return { status: "running", chunksDone: job.chunks_done, chunkCount: job.chunk_count };
+});
 
 export const listIngestJobs = createServerFn({ method: "GET" }).handler(async () => {
   const sb = await admin();
@@ -429,6 +440,9 @@ export const cancelIngest = createServerFn({ method: "POST" })
     const { data: job } = await sb.from("ingest_jobs").select("*").eq("id", data.jobId).maybeSingle();
     if (!job) return { ok: true };
     await sb.from("ingest_jobs").update({ status: "cancelled" }).eq("id", job.id);
+    
+    const abortCtrl = activeIngests.get(job.id);
+    if (abortCtrl) abortCtrl.abort();
 
     if (data.deleteVideo && job.video_id) {
       const paths: string[] = [];
