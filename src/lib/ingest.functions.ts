@@ -3,7 +3,7 @@
 //
 // A job is processed in short "pumps" (a few chunks per call) so each request
 // stays well inside the platform's execution budget. Any device can drive the
-// pump loop — progress lives in the database.
+// pump loop â€” progress lives in the database.
 
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -58,6 +58,42 @@ function storageSafe(n: string) {
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36";
 
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|mkv|avi|m4v|ts|mpeg|mpg|3gp|flv|wmv)$/i;
+
+function googleDriveId(url: string) {
+  try {
+    const u = new URL(url);
+    if (!/(\.|^)google\.com$/.test(u.hostname) && !/(\.|^)googleusercontent\.com$/.test(u.hostname)) return null;
+    const idParam = u.searchParams.get("id");
+    if (idParam) return idParam;
+    const fileMatch = u.pathname.match(/\/file\/d\/([^/]+)/);
+    if (fileMatch?.[1]) return fileMatch[1];
+    const openMatch = u.pathname.match(/\/open\/([^/]+)/);
+    if (openMatch?.[1]) return openMatch[1];
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function googleDriveFolderId(url: string) {
+  try {
+    const u = new URL(url);
+    if (!/(\.|^)google\.com$/.test(u.hostname)) return null;
+    const folderMatch = u.pathname.match(/\/folders\/([^/?]+)/);
+    if (folderMatch?.[1]) return folderMatch[1];
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function directUrl(url: string) {
+  const id = googleDriveId(url);
+  if (!id) return url;
+  return `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`;
+}
+
 async function probe(url: string) {
   // HEAD first; many hosts only answer correctly to a 1-byte ranged GET.
   let ref = "";
@@ -109,19 +145,24 @@ export const startUrlIngest = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     if (!/^https?:$/.test(new URL(data.url).protocol)) throw new Error("Only http(s) links are supported");
+    const folderId = googleDriveFolderId(data.url);
+    if (folderId) {
+      return await startDriveFolder(folderId, data.categoryId ?? null);
+    }
+    const sourceUrl = directUrl(data.url);
     const sb = await admin();
 
-    const info = await probe(data.url);
+    const info = await probe(sourceUrl);
     if (!info.size || info.size < 1024)
       throw new Error(
-        "Could not read the file size from that link — it may need a login, be an HTML page, or be a temporary link that has expired.",
+        "Could not read the file size from that link â€” it may need a login, be an HTML page, or be a temporary link that has expired.",
       );
     if (!info.ranges)
       throw new Error(
         "That host does not allow resumable (range) downloads, so the import cannot be chunked. Try a direct-download mirror link.",
       );
 
-    const fileName = safeName(nameFromUrl(data.url, info.disp));
+    const fileName = safeName(nameFromUrl(sourceUrl, info.disp));
     const ext = fileName.split(".").pop()?.toLowerCase() ?? "mp4";
     const { prettyTitle } = await import("@/lib/poster.server");
     // Imported links are release names; show a clean title in the library.
@@ -152,7 +193,7 @@ export const startUrlIngest = createServerFn({ method: "POST" })
       .from("ingest_jobs")
       .insert({
         video_id: video.id,
-        source_url: data.url,
+        source_url: sourceUrl,
         file_name: fileName,
         storage_path: storagePath,
         total_bytes: info.size,
@@ -174,6 +215,94 @@ export const startUrlIngest = createServerFn({ method: "POST" })
 
     return { jobId: job.id as string, videoId: video.id as string, totalBytes: info.size, chunkCount };
   });
+
+async function startDriveFolder(folderId: string, categoryId: string | null) {
+  const key = process.env.GOOGLE_DRIVE_API_KEY;
+  if (!key) {
+    throw new Error(
+      "Google Drive folder import needs GOOGLE_DRIVE_API_KEY on the server. Direct Drive file links still work without it.",
+    );
+  }
+
+  const sb = await admin();
+  const q = `'${folderId.replace(/'/g, "\\'")}' in parents and trashed = false`;
+  const api = new URL("https://www.googleapis.com/drive/v3/files");
+  api.searchParams.set("key", key);
+  api.searchParams.set("q", q);
+  api.searchParams.set("pageSize", "1000");
+  api.searchParams.set("fields", "files(id,name,mimeType,size)");
+  api.searchParams.set("supportsAllDrives", "true");
+  api.searchParams.set("includeItemsFromAllDrives", "true");
+
+  const res = await fetch(api, { headers: { "user-agent": BROWSER_UA } });
+  if (!res.ok) throw new Error(`Google Drive folder listing failed (${res.status})`);
+  const body = (await res.json()) as {
+    files?: { id: string; name: string; mimeType?: string; size?: string }[];
+  };
+
+  const files = (body.files ?? []).filter((f) => {
+    if (f.mimeType?.startsWith("video/")) return true;
+    return VIDEO_EXT_RE.test(f.name);
+  });
+  if (!files.length) throw new Error("No video files were found in that Google Drive folder.");
+
+  const { prettyTitle } = await import("@/lib/poster.server");
+  const created: { jobId: string; videoId: string; fileName: string }[] = [];
+  for (const file of files) {
+    const size = Number(file.size ?? 0);
+    if (!size || !Number.isFinite(size)) continue;
+    const fileName = safeName(file.name);
+    const ext = fileName.split(".").pop()?.toLowerCase() ?? "mp4";
+    const storagePath = `ingest/${crypto.randomUUID()}/${storageSafe(fileName)}`;
+    const chunkCount = Math.ceil(size / CHUNK_SIZE);
+    const sourceUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(file.id)}&export=download&confirm=t`;
+
+    const { data: video, error: vErr } = await sb
+      .from("videos")
+      .insert({
+        title: prettyTitle(fileName),
+        storage_path: storagePath,
+        size_bytes: size,
+        mime_type: file.mimeType ?? null,
+        extension: ext,
+        category_id: categoryId,
+        uploaded_by: ANON_USER,
+        upload_mode: "chunked",
+        chunk_size_bytes: CHUNK_SIZE,
+        chunk_count: chunkCount,
+      })
+      .select("id")
+      .single();
+    if (vErr) throw vErr;
+
+    const { data: job, error: jErr } = await sb
+      .from("ingest_jobs")
+      .insert({
+        video_id: video.id,
+        source_url: sourceUrl,
+        file_name: fileName,
+        storage_path: storagePath,
+        total_bytes: size,
+        chunk_size_bytes: CHUNK_SIZE,
+        chunk_count: chunkCount,
+        status: "queued",
+      })
+      .select("id")
+      .single();
+    if (jErr) throw jErr;
+    created.push({ jobId: job.id as string, videoId: video.id as string, fileName });
+
+    try {
+      const { autoPoster } = await import("@/lib/poster.server");
+      await autoPoster(sb, video.id, fileName);
+    } catch {
+      /* best effort */
+    }
+  }
+
+  if (!created.length) throw new Error("The Drive folder videos did not expose file sizes, so they cannot be imported safely.");
+  return { folder: true as const, count: created.length, jobs: created };
+}
 
 async function fetchPart(url: string, start: number, end: number): Promise<ArrayBuffer> {
   const want = end - start + 1;
