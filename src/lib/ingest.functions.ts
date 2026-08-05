@@ -9,8 +9,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { resolveGDriveUrl } from "@/lib/gdrive.functions";
 
-const CHUNK_SIZE = 24 * 1024 * 1024; // 24 MB parts
-const PARALLEL_PARTS = 2; // Cloudflare Workers have a 128MB RAM limit. 2 parts * 24MB * 2 (Blob duplication) = 96MB (Safe). 8 parts is guaranteed instant OOM death.
+const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB parts for maximum concurrent throughput without OOM
 const FETCH_RETRIES = 4;
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
 
@@ -281,8 +280,11 @@ export const pumpIngest = createServerFn({ method: "POST" })
       let done = Number(job.chunks_done);
       const t0 = Date.now();
       let bytesThisPump = 0;
+      
+      // Dynamic memory protection: if it's an old 24MB job, cap at 2. If it's a new 8MB job, allow 8.
+      const parallelLimit = cs >= 20 * 1024 * 1024 ? 2 : 8;
 
-        const isNoRange = job.source_url.endsWith("#norange");
+      const isNoRange = job.source_url.endsWith("#norange");
         const cleanUrl = job.source_url.replace(/#norange$/, "");
         const sourceUrl = resolveGDriveUrl(cleanUrl) ?? cleanUrl;
       if (isNoRange) {
@@ -380,7 +382,7 @@ export const pumpIngest = createServerFn({ method: "POST" })
                 activeUploads.splice(activeUploads.indexOf(p), 1);
               });
               
-              if (activeUploads.length >= PARALLEL_PARTS) {
+              if (activeUploads.length >= parallelLimit) {
                 await Promise.race(activeUploads);
               }
               
@@ -394,11 +396,11 @@ export const pumpIngest = createServerFn({ method: "POST" })
         if (bgError) throw bgError;
         finalStatus = done >= job.chunk_count ? "done" : "running";
       } else {
-        // We only do ONE batch of PARALLEL_PARTS per request to avoid worker timeout.
-        // The client-side pump will call this endpoint repeatedly until done.
-        if (done < job.chunk_count) {
+        // Run multiple batches back-to-back to eliminate client round-trip latency.
+        // We run for up to 15 seconds to stay well within the Cloudflare Worker 30s timeout.
+        while (done < job.chunk_count && Date.now() - t0 < 15_000) {
           const batch: number[] = [];
-          for (let k = 0; k < PARALLEL_PARTS && done + k < job.chunk_count; k += 1) batch.push(done + k);
+          for (let k = 0; k < parallelLimit && done + k < job.chunk_count; k += 1) batch.push(done + k);
 
           await Promise.all(
             batch.map(async (index) => {
