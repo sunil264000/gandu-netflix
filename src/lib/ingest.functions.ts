@@ -265,6 +265,8 @@ export const pumpIngest = createServerFn({ method: "POST" })
         const finishedIndexes = new Set<number>();
         const activeUploads: Promise<void>[] = [];
         let bgError: any = null;
+        let uploadStartTime = Date.now();
+        let finishedSkipping = bytesToSkip === 0;
         
         const uploadChunk = async (buf: Uint8Array, index: number) => {
           if (abortCtrl.signal.aborted) throw new Error("cancelled");
@@ -279,7 +281,7 @@ export const pumpIngest = createServerFn({ method: "POST" })
               highestCompleted++;
             }
             
-            const elapsed = (Date.now() - t0) / 1000;
+            const elapsed = (Date.now() - uploadStartTime) / 1000;
             sb.from("ingest_jobs").update({
               chunks_done: highestCompleted,
               bytes_done: Math.min(total, highestCompleted * cs),
@@ -309,10 +311,18 @@ export const pumpIngest = createServerFn({ method: "POST" })
           if (bytesToSkip > 0) {
             if (chunk.byteLength <= bytesToSkip) {
               bytesToSkip -= chunk.byteLength;
+              if (bytesToSkip === 0 && !finishedSkipping) {
+                finishedSkipping = true;
+                uploadStartTime = Date.now();
+              }
               continue;
             } else {
               chunk = chunk.slice(bytesToSkip);
               bytesToSkip = 0;
+              if (!finishedSkipping) {
+                finishedSkipping = true;
+                uploadStartTime = Date.now();
+              }
             }
           }
           
