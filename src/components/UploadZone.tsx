@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import * as tus from "tus-js-client";
-import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp, Activity } from "lucide-react";
+import JSZip from "jszip";
+import { Upload, X, CheckCircle2, AlertCircle, Loader2, FolderUp, Activity, FileArchive } from "lucide-react";
 import { createVideoRecord, createCategory, listCategories, attachAudioTrack } from "@/lib/videos.functions";
 import { extractCompatibleAudio, likelyNeedsCompatibleAudio, transcodeSupported, type TranscodeProgress } from "@/lib/audioTranscode";
 import { createUploadJob, updateUploadJob } from "@/lib/uploadTracker";
@@ -113,6 +114,7 @@ type Job = {
 };
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|mkv|avi|m4v|ts|mpeg|mpg|3gp|flv|wmv)$/i;
+const ARCHIVE_EXT_RE = /\.(zip|rar)$/i;
 
 // Try native <video> decode; if the browser can't decode the codec (MKV/HEVC/10-bit),
 // return null and let the caller build a stylized poster from the title.
@@ -241,7 +243,10 @@ async function audioDecodesInBrowser(file: File): Promise<boolean> {
 export function UploadZone({ categoryId, onDone }: { categoryId: string | null; onDone: () => void }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [drag, setDrag] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveMsg, setArchiveMsg] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const archiveRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
   const _create = useServerFn(createVideoRecord);
   const _attachAudio = useServerFn(attachAudioTrack);
@@ -364,34 +369,34 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       // Release rips (MKV/M2TS) usually carry DTS / TrueHD / E-AC3 / 5.1 PCM,
       // which no browser can decode. While we still hold the local file, convert
       // its soundtrack to AAC with WebAssembly ffmpeg and attach it as a
-      // companion track — exactly what Netflix does, just done client-side.
+      // companion track â€” exactly what Netflix does, just done client-side.
       // The filename heuristic is only a shortcut; anything it doesn't catch is
       // decided by actually trying to decode the audio in this browser.
       let autoAac = likelyNeedsCompatibleAudio(file.name) || !/\.(mp4|m4v|webm)$/i.test(file.name);
       if (!autoAac) {
-        updateJob(job.id, { status: "audio", message: "Checking audio compatibility…" });
+        updateJob(job.id, { status: "audio", message: "Checking audio compatibilityâ€¦" });
         autoAac = !(await audioDecodesInBrowser(file));
       }
       if (created?.id && transcodeSupported() && autoAac) {
         try {
-          updateJob(job.id, { status: "audio", message: "Preparing browser audio…", progress: 0 });
+          updateJob(job.id, { status: "audio", message: "Preparing browser audioâ€¦", progress: 0 });
           const res = await extractCompatibleAudio(file, {
             onProgress: (p: TranscodeProgress) =>
               updateJob(job.id, {
                 progress: p.pct,
-                message: p.phase === "converting" ? `Converting audio ${p.pct.toFixed(0)}%` : "Loading audio engine…",
+                message: p.phase === "converting" ? `Converting audio ${p.pct.toFixed(0)}%` : "Loading audio engineâ€¦",
               }),
           });
-          updateJob(job.id, { message: "Uploading audio track…", progress: 0 });
+          updateJob(job.id, { message: "Uploading audio trackâ€¦", progress: 0 });
           const audioPath = `audio/${created.id}.${res.ext}`;
           await uploadObject("videos", audioPath, res.blob, "audio/mp4");
           await _attachAudio({ data: { videoId: created.id, path: audioPath, label: res.label } });
-          updateJob(job.id, { status: "done", message: "Uploaded · audio ready", progress: 100 });
+          updateJob(job.id, { status: "done", message: "Uploaded Â· audio ready", progress: 100 });
           onDone();
         } catch (e) {
           updateJob(job.id, {
             status: "done",
-            message: `Uploaded · audio conversion skipped (${(e as Error).message.slice(0, 60)})`,
+            message: `Uploaded Â· audio conversion skipped (${(e as Error).message.slice(0, 60)})`,
             progress: 100,
           });
         }
@@ -407,15 +412,56 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
 
 
 
-  const addFiles = (files: FileList | null) => {
-    if (!files) return;
-    const vids = Array.from(files).filter((f) => VIDEO_EXT_RE.test(f.name) || f.type.startsWith("video/"));
+  const queueVideoFiles = useCallback((files: File[]) => {
+    const vids = files.filter((f) => VIDEO_EXT_RE.test(f.name) || f.type.startsWith("video/"));
     if (!vids.length) return;
     const newJobs: Job[] = vids.map((file) => ({
       id: crypto.randomUUID(), file, progress: 0, status: "queued",
     }));
     setJobs((prev) => [...prev, ...newJobs]);
     newJobs.forEach(processFile);
+  }, [processFile]);
+
+  const addArchives = async (files: FileList | File[] | null) => {
+    if (!files) return;
+    const archives = Array.from(files).filter((f) => ARCHIVE_EXT_RE.test(f.name));
+    if (!archives.length) return;
+    setArchiveBusy(true);
+    setArchiveMsg(null);
+    try {
+      const extracted: File[] = [];
+      for (const archive of archives) {
+        if (/\.rar$/i.test(archive.name)) {
+          throw new Error("RAR import needs a RAR extraction runtime. Use ZIP for automatic video import right now.");
+        }
+        setArchiveMsg(`Reading ${archive.name}...`);
+        const zip = await JSZip.loadAsync(archive);
+        const entries = Object.values(zip.files).filter((entry) => !entry.dir && VIDEO_EXT_RE.test(entry.name));
+        for (const entry of entries) {
+          const blob = await entry.async("blob");
+          const name = entry.name.split("/").filter(Boolean).pop() || entry.name;
+          extracted.push(new File([blob], name, { type: blob.type || "application/octet-stream" }));
+        }
+      }
+      if (!extracted.length) {
+        setArchiveMsg("No video files were found inside that ZIP.");
+        return;
+      }
+      setArchiveMsg(`Found ${extracted.length} video${extracted.length === 1 ? "" : "s"} in the ZIP. Uploading now...`);
+      queueVideoFiles(extracted);
+    } catch (e) {
+      setArchiveMsg(e instanceof Error ? e.message : "Could not read that archive.");
+    } finally {
+      setArchiveBusy(false);
+      if (archiveRef.current) archiveRef.current.value = "";
+    }
+  };
+
+  const addFiles = (files: FileList | null) => {
+    if (!files) return;
+    const all = Array.from(files);
+    void addArchives(all);
+    queueVideoFiles(all);
   };
 
   const naturalCmp = (a: string, b: string) =>
@@ -536,7 +582,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
   const fmtMB = (b: number) => (b / 1024 / 1024).toFixed(1);
   const eta = speed > 0 ? Math.max(0, (totalBytes - doneBytes) / speed) : 0;
   const fmtETA = (s: number) => {
-    if (!isFinite(s) || s <= 0) return "—";
+    if (!isFinite(s) || s <= 0) return "â€”";
     const m = Math.floor(s / 60), sec = Math.floor(s % 60);
     return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
   };
@@ -578,11 +624,11 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
               <Activity className="w-4 h-4 text-red-400 animate-pulse" />
               <span className="text-sm font-semibold text-white">Live uploads</span>
               <span className="text-xs text-white/60">
-                {active.length} active · {fmtMB(doneBytes)} / {fmtMB(totalBytes)} MB
+                {active.length} active Â· {fmtMB(doneBytes)} / {fmtMB(totalBytes)} MB
               </span>
             </div>
             <div className="text-xs text-white/70 tabular-nums">
-              {(speed / 1024 / 1024).toFixed(2)} MB/s · ETA {fmtETA(eta)}
+              {(speed / 1024 / 1024).toFixed(2)} MB/s Â· ETA {fmtETA(eta)}
             </div>
           </div>
           <div className="h-2 bg-white/10 rounded-full overflow-hidden">
@@ -604,11 +650,20 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
       >
         <Upload className="w-10 h-10 mx-auto text-white/40 mb-3" />
         <p className="text-white font-medium">Drop videos here or click to browse</p>
-        <p className="mt-1 text-xs text-white/50">MP4, WebM, MOV, MKV — large files upload in safe chunks</p>
-        <input ref={inputRef} type="file" multiple accept="video/*,.mkv,.avi" hidden onChange={(e) => addFiles(e.target.files)} />
+        <p className="mt-1 text-xs text-white/50">MP4, WebM, MOV, MKV â€” large files upload in safe chunks</p>
+        <input ref={inputRef} type="file" multiple accept="video/*,.mkv,.avi,.zip,.rar" hidden onChange={(e) => addFiles(e.target.files)} />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={archiveBusy}
+          onClick={(e) => { e.stopPropagation(); archiveRef.current?.click(); }}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium disabled:opacity-50"
+        >
+          {archiveBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileArchive className="w-4 h-4" />}
+          Upload ZIP/RAR
+        </button>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); folderRef.current?.click(); }}
@@ -621,6 +676,14 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
           Each top-level folder becomes a series (auto-creates a category with the folder name).
         </p>
         <input
+          ref={archiveRef}
+          type="file"
+          hidden
+          multiple
+          accept=".zip,.rar,application/zip,application/x-rar-compressed"
+          onChange={(e) => { void addArchives(e.target.files); }}
+        />
+        <input
           ref={folderRef}
           type="file"
           hidden
@@ -631,6 +694,7 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
           directory=""
         />
       </div>
+      {archiveMsg && <p className="mt-2 text-xs text-white/55">{archiveMsg}</p>}
 
       {jobs.length > 0 && (
         <div className="mt-4 space-y-2">
@@ -666,13 +730,13 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                     </p>
                     <p className="text-xs text-white/50">
                       <span className="text-red-300">{statusLabel}</span>
-                      {j.message && j.status === "error" ? ` — ${j.message}` : ""} · {fmtMB(j.file.size)} MB
+                      {j.message && j.status === "error" ? ` â€” ${j.message}` : ""} Â· {fmtMB(j.file.size)} MB
                     </p>
                   </div>
                   {isActive && (
                     <div className="text-right text-xs text-white/70 tabular-nums whitespace-nowrap">
                       <div className="text-white font-semibold text-sm">{j.progress.toFixed(1)}%</div>
-                      <div>{showStats ? `${(jSpeed / 1024 / 1024).toFixed(2)} MB/s` : "—"}</div>
+                      <div>{showStats ? `${(jSpeed / 1024 / 1024).toFixed(2)} MB/s` : "â€”"}</div>
                     </div>
                   )}
                   {isActive && (
@@ -705,15 +769,15 @@ export function UploadZone({ categoryId, onDone }: { categoryId: string | null; 
                         <Stat label="Uploaded" value={`${fmtMB(jDone)} / ${fmtMB(j.file.size)} MB`} />
                         <Stat label="Speed" value={`${(jSpeed / 1024 / 1024).toFixed(2)} MB/s`} />
                         <Stat label="Avg" value={`${(jAvg / 1024 / 1024).toFixed(2)} MB/s`} />
-                        <Stat label="Elapsed / ETA" value={`${fmtETA(jElapsed)} · ${fmtETA(jEta)}`} />
+                        <Stat label="Elapsed / ETA" value={`${fmtETA(jElapsed)} Â· ${fmtETA(jEta)}`} />
                         <div className="col-span-2 sm:col-span-1 flex flex-col items-end">
-                          <span className="text-[10px] uppercase tracking-wide text-white/40">Trend · peak {(jPeak / 1024 / 1024).toFixed(1)} MB/s</span>
+                          <span className="text-[10px] uppercase tracking-wide text-white/40">Trend Â· peak {(jPeak / 1024 / 1024).toFixed(1)} MB/s</span>
                           <Sparkline data={(jStats?.history ?? []).map((b) => b / 1024 / 1024)} width={120} height={30} />
                         </div>
                       </div>
                     )}
                     {!showStats && (
-                      <div className="mt-1 text-[11px] text-white/50">{statusLabel}…</div>
+                      <div className="mt-1 text-[11px] text-white/50">{statusLabel}â€¦</div>
                     )}
                   </>
                 )}
