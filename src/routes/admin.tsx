@@ -1,0 +1,366 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useRef } from "react";
+import { Trash2, Plus, Film, HardDrive, Eye, Sparkles, Loader2 } from "lucide-react";
+import { AppHeader } from "@/components/AppHeader";
+import { UploadZone } from "@/components/UploadZone";
+import {
+  listVideos, listCategories, deleteVideo, updateVideo,
+  createCategory, deleteCategory, storageStats, backfillThumbnails,
+  attachAudioTrack, removeAudioTrack,
+} from "@/lib/videos.functions";
+import { uploadAny } from "@/lib/storageUpload";
+import { extractCompatibleAudio, extractCompatibleAudioFromServer, serverRescueSupported, type TranscodeProgress } from "@/lib/audioTranscode";
+import { UrlIngest } from "@/components/UrlIngest";
+
+import { autoPosterSweep, tidyTitlesSweep } from "@/lib/posters.functions";
+
+import { useLiveVideos } from "@/hooks/useLiveVideos";
+
+export const Route = createFileRoute("/admin")({
+  component: Admin, ssr: false,
+  head: () => ({ meta: [
+    { title: "Admin — GANDU NETFLIX" },
+    { name: "description", content: "Manage videos, categories, and library." },
+    { property: "og:title", content: "Admin — GANDU NETFLIX" },
+    { property: "og:description", content: "Manage videos, categories, and library." },
+  ]}),
+});
+
+function fmtBytes(b: number) {
+  if (b >= 1e12) return (b / 1e12).toFixed(2) + " TB";
+  if (b >= 1e9) return (b / 1e9).toFixed(2) + " GB";
+  if (b >= 1e6) return (b / 1e6).toFixed(1) + " MB";
+  return (b / 1e3).toFixed(0) + " KB";
+}
+
+function Admin() {
+  const nav = useNavigate();
+  const qc = useQueryClient();
+  const _list = useServerFn(listVideos);
+  const _cats = useServerFn(listCategories);
+  const _del = useServerFn(deleteVideo);
+  const _upd = useServerFn(updateVideo);
+  const _createCat = useServerFn(createCategory);
+  const _delCat = useServerFn(deleteCategory);
+  const _stats = useServerFn(storageStats);
+  const _backfill = useServerFn(backfillThumbnails);
+  const _autoPoster = useServerFn(autoPosterSweep);
+  const _tidyTitles = useServerFn(tidyTitlesSweep);
+
+  const [selectedCat, setSelectedCat] = useState<string | null>(null);
+  const [newCat, setNewCat] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
+
+  const vids = useQuery({ queryKey: ["admin:videos"], queryFn: () => _list({ data: { sort: "new", limit: 60 } }) });
+  const cats = useQuery({ queryKey: ["admin:cats"], queryFn: () => _cats() });
+  const stats = useQuery({ queryKey: ["admin:stats"], queryFn: () => _stats() });
+
+  useLiveVideos([["admin:videos"], ["admin:stats"]]);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["admin:videos"] });
+    qc.invalidateQueries({ queryKey: ["admin:stats"] });
+  };
+
+  const runBackfill = async () => {
+    setBackfilling(true); setBackfillMsg(null);
+    try {
+      // 1) Clean release-name titles, 2) look up real artwork, 3) generate a
+      // poster for whatever is still bare.
+      const tidy = await _tidyTitles({ data: { force: false } });
+       // Existing JPG frame-grabs also need replacing, not only empty/SVG
+       // placeholders, so this repair action deliberately checks every title.
+       const auto = await _autoPoster({ data: { force: true } });
+      const r = await _backfill();
+      const parts: string[] = [];
+      if (tidy.renamed > 0) parts.push(`Cleaned ${tidy.renamed} title${tidy.renamed === 1 ? "" : "s"}`);
+      if (auto.matched > 0) parts.push(`Found artwork for ${auto.matched} title${auto.matched === 1 ? "" : "s"}`);
+      if (r.generated > 0) parts.push(`generated ${r.generated} fallback poster${r.generated === 1 ? "" : "s"}`);
+      if (!parts.length) parts.push(auto.scanned ? `Checked ${auto.scanned}, no match found` : "Everything already has a poster.");
+      if (auto.missed.length) parts.push(auto.missed[0]!);
+      setBackfillMsg(parts.join(" · "));
+      refresh();
+    } catch (e) {
+      setBackfillMsg((e as Error).message || "Backfill failed");
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
+
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] text-white">
+      <AppHeader />
+      <main className="max-w-[1600px] mx-auto px-6 py-8 space-y-8">
+        <h1 className="text-3xl font-bold">Admin</h1>
+
+        {/* Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatCard icon={<Film className="w-5 h-5" />} label="Videos" value={String(stats.data?.total_videos ?? 0)} />
+          <StatCard icon={<HardDrive className="w-5 h-5" />} label="Storage" value={fmtBytes(stats.data?.total_bytes ?? 0)} />
+          <StatCard icon={<Eye className="w-5 h-5" />} label="Total Views" value={String(stats.data?.total_views ?? 0)} />
+        </div>
+
+        {/* Artwork automation */}
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-white">Automatic artwork</div>
+            <div className="text-xs text-white/60">Matches every title online and replaces old frame-grabs with proper movie artwork. Unmatched titles keep their current thumbnail.</div>
+            {backfillMsg && <div className="mt-1 text-xs text-emerald-400">{backfillMsg}</div>}
+          </div>
+          <button
+            type="button" onClick={runBackfill} disabled={backfilling}
+            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-500 to-red-700 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 disabled:opacity-50"
+          >
+            {backfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {backfilling ? "Fetching artwork..." : "Fetch posters automatically"}
+          </button>
+        </section>
+
+
+        {/* Upload */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-bold">Upload</h2>
+            <select value={selectedCat ?? ""} onChange={(e) => setSelectedCat(e.target.value || null)}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
+              <option value="">Uncategorized</option>
+              {(cats.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <UploadZone categoryId={selectedCat} onDone={refresh} />
+        </section>
+
+        <UrlIngest categoryId={selectedCat} onDone={refresh} />
+
+        {/* Categories */}
+        <section>
+          <h2 className="text-xl font-bold mb-3">Categories</h2>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {(cats.data ?? []).map((c) => (
+              <div key={c.id} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
+                <span className="text-sm">{c.name}</span>
+                <button onClick={async () => { await _delCat({ data: { id: c.id } }); qc.invalidateQueries({ queryKey: ["admin:cats"] }); qc.invalidateQueries({ queryKey: ["cats"] }); }}
+                  className="text-white/40 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={async (e) => {
+            e.preventDefault(); if (!newCat.trim()) return;
+            await _createCat({ data: { name: newCat.trim() } }); setNewCat("");
+            qc.invalidateQueries({ queryKey: ["admin:cats"] }); qc.invalidateQueries({ queryKey: ["cats"] });
+          }} className="flex gap-2 max-w-sm">
+            <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New category name"
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500/60" />
+            <button className="px-4 rounded-lg bg-white/10 hover:bg-white/20 text-sm flex items-center gap-1"><Plus className="w-4 h-4" />Add</button>
+          </form>
+        </section>
+
+        {/* Videos list */}
+        <section>
+          <h2 className="text-xl font-bold mb-3">Videos ({vids.data?.length ?? 0})</h2>
+          <div className="space-y-2">
+            {(vids.data ?? []).map((v) => (
+              <div key={v.id} className="flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/10">
+                <div className="w-24 aspect-video rounded overflow-hidden bg-white/10 flex-shrink-0">
+                  {v.thumbnail_url ? <img src={v.thumbnail_url} className="w-full h-full object-cover" /> : null}
+                </div>
+                <div className="flex-1 min-w-0">
+                  {editing === v.id ? (
+                    <div className="flex gap-2">
+                      <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
+                        className="flex-1 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm" />
+                      <button onClick={async () => { await _upd({ data: { id: v.id, title: editTitle } }); setEditing(null); refresh(); }}
+                        className="px-3 py-1 rounded bg-red-500 text-sm">Save</button>
+                      <button onClick={() => setEditing(null)} className="px-3 py-1 rounded bg-white/10 text-sm">Cancel</button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="font-medium truncate cursor-pointer hover:text-red-400" onClick={() => { setEditing(v.id); setEditTitle(v.title); }}>{v.title}</p>
+                      <p className="text-xs text-white/50">{fmtBytes(v.size_bytes)} · {v.view_count} views</p>
+                    </>
+                  )}
+                </div>
+                <AudioTrackControl
+                  videoId={v.id}
+                  sizeBytes={Number(v.size_bytes)}
+                  fileName={(v.storage_path?.split("/").pop() ?? v.title) as string}
+                  hasTrack={!!(v as { audio_path?: string | null }).audio_path}
+                  onDone={refresh}
+                />
+                <button onClick={() => nav({ to: "/watch/$slug", params: { slug: v.slug ?? v.id } })}
+                  className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-sm">Watch</button>
+                <button onClick={async () => { if (confirm(`Delete "${v.title}"?`)) { await _del({ data: { id: v.id } }); refresh(); } }}
+                  className="p-2 rounded text-white/60 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            ))}
+          </div>
+          <p className="mt-4 text-xs text-white/40 leading-relaxed max-w-3xl">
+            <span className="font-semibold text-white/70">Compatible audio:</span> browsers cannot decode
+            DTS / TrueHD / Atmos. Make a small AAC companion track on your PC with{" "}
+            <code className="text-red-300">ffmpeg -i movie.mkv -vn -c:a aac -b:a 256k -ac 2 movie.m4a</code>{" "}
+            and attach it here — the 4K video keeps streaming untouched while the browser plays the AAC track in sync.
+          </p>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function AudioTrackControl({ videoId, sizeBytes, fileName, hasTrack, onDone }: { videoId: string; sizeBytes: number; fileName: string; hasTrack: boolean; onDone: () => void }) {
+  const _attach = useServerFn(attachAudioTrack);
+  const _remove = useServerFn(removeAudioTrack);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const [pct, setPct] = useState<number | null>(null);
+  const [stage, setStage] = useState<string>("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const isAudioFile = (f: File) =>
+    f.type.startsWith("audio/") || /\.(m4a|aac|mp3|opus|ogg|oga|flac|wav)$/i.test(f.name);
+
+  const pick = async (file: File) => {
+    setErr(null);
+    setPct(0);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      let payload: Blob = file;
+      let ext = (file.name.split(".").pop() || "m4a").toLowerCase();
+      let label = `Compatible audio (${ext.toUpperCase()})`;
+
+      if (!isAudioFile(file)) {
+        // A video file was picked — convert its soundtrack to AAC right here in the browser.
+        setStage("Converting");
+        const res = await extractCompatibleAudio(file, {
+          signal: ctrl.signal,
+          onProgress: (p: TranscodeProgress) => {
+            setPct(p.pct);
+            setStage(p.phase === "converting" ? "Converting" : p.phase === "loading" ? "Engine" : "Reading");
+          },
+        });
+        payload = res.blob;
+        ext = res.ext;
+        label = res.label;
+      }
+
+      setStage("Uploading");
+      setPct(0);
+      const path = `audio/${videoId}.${ext}`;
+      const toUpload = new File([payload], `${videoId}.${ext}`, { type: payload.type || "audio/mp4" });
+      await uploadAny("videos", path, toUpload, (p: number) => setPct(p));
+      await _attach({ data: { videoId, path, label } });
+      setPct(null);
+      setStage("");
+      onDone();
+    } catch (e) {
+      setPct(null);
+      setStage("");
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
+  const fromServer = async () => {
+    setErr(null);
+    setPct(0);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      setStage("Server copy");
+      const res = await extractCompatibleAudioFromServer({
+        streamUrl: `/api/public/videos/stream?id=${encodeURIComponent(videoId)}`,
+        fileName,
+        sizeBytes,
+        signal: ctrl.signal,
+        onProgress: (p: TranscodeProgress) => {
+          setPct(p.pct);
+          setStage(p.phase === "converting" ? "Converting" : p.phase === "loading" ? "Engine" : "Fetching");
+        },
+      });
+      setStage("Uploading");
+      setPct(0);
+      const path = `audio/${videoId}.${res.ext}`;
+      const toUpload = new File([res.blob], `${videoId}.${res.ext}`, { type: "audio/mp4" });
+      await uploadAny("videos", path, toUpload, (p: number) => setPct(p));
+      await _attach({ data: { videoId, path, label: res.label } });
+      setPct(null);
+      setStage("");
+      onDone();
+    } catch (e) {
+      setPct(null);
+      setStage("");
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
+  const busy = pct != null;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="video/*,audio/*,.mkv,.m2ts,.ts,.avi,.m4a,.aac,.mp3,.opus"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) pick(f); e.target.value = ""; }}
+      />
+      <button
+        onClick={() => (busy ? abortRef.current?.abort() : inputRef.current?.click())}
+        title={
+          busy
+            ? "Cancel"
+            : "Pick the original video file — its soundtrack is converted to AAC in your browser and attached automatically"
+        }
+        className={`px-2.5 py-1.5 rounded text-xs font-semibold transition whitespace-nowrap ${
+          busy
+            ? "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
+            : hasTrack
+              ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+              : "bg-white/10 hover:bg-white/20 text-white/70"
+        }`}
+      >
+        {busy ? `${stage} ${pct!.toFixed(0)}%` : hasTrack ? "AAC ✓" : "Fix audio"}
+      </button>
+      {!busy && serverRescueSupported() && (
+        <button
+          onClick={fromServer}
+          title="Convert the soundtrack using the copy already stored on the server — nothing is needed from your computer"
+          className="whitespace-nowrap rounded bg-sky-500/15 px-2.5 py-1.5 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/25"
+        >
+          Server audio
+        </button>
+      )}
+      {hasTrack && !busy && (
+        <button
+          onClick={async () => { await _remove({ data: { videoId } }); onDone(); }}
+          title="Remove companion audio track"
+          className="p-1.5 rounded text-white/40 hover:text-red-400 hover:bg-red-500/10"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
+      {err && <span className="text-[10px] text-red-400 max-w-[8rem] truncate" title={err}>{err}</span>}
+    </div>
+  );
+}
+
+
+function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="p-5 rounded-2xl bg-gradient-to-br from-white/5 to-white/[0.02] border border-white/10">
+      <div className="flex items-center gap-2 text-white/60 mb-1">{icon}<span className="text-xs uppercase tracking-wider">{label}</span></div>
+      <div className="text-2xl font-bold">{value}</div>
+    </div>
+  );
+}
+
