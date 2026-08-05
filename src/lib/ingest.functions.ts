@@ -96,18 +96,8 @@ async function probe(url: string) {
   return { size, type, disp, ranges };
 }
 
-export const startUrlIngest = createServerFn({ method: "POST" })
-  .inputValidator((i: { url: string; title?: string; categoryId?: string | null }) =>
-    z
-      .object({
-        url: z.string().url().max(4000),
-        title: z.string().max(300).optional(),
-        categoryId: z.string().uuid().nullable().optional(),
-      })
-      .parse(i),
-  )
-  .handler(async ({ data }) => {
-    if (!/^https?:$/.test(new URL(data.url).protocol)) throw new Error("Only http(s) links are supported");
+export async function executeStartUrlIngest(url: string, title?: string, categoryId?: string | null) {
+    if (!/^https?:$/.test(new URL(url).protocol)) throw new Error("Only http(s) links are supported");
     const sb = await admin();
 
     const info = await probe(data.url);
@@ -170,6 +160,20 @@ export const startUrlIngest = createServerFn({ method: "POST" })
     }
 
     return { jobId: job.id as string, videoId: video.id as string, totalBytes: info.size, chunkCount };
+}
+
+export const startUrlIngest = createServerFn({ method: "POST" })
+  .inputValidator((i: { url: string; title?: string; categoryId?: string | null }) =>
+    z
+      .object({
+        url: z.string().url().max(4000),
+        title: z.string().max(300).optional(),
+        categoryId: z.string().uuid().nullable().optional(),
+      })
+      .parse(i),
+  )
+  .handler(async ({ data }) => {
+    return executeStartUrlIngest(data.url, data.title, data.categoryId);
   });
 
 async function fetchPart(url: string, start: number, end: number): Promise<ArrayBuffer> {
@@ -260,11 +264,9 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
   throw new Error(`part ${start}-${end} failed: ${String(lastErr)}`);
 }
 
-export const pumpIngest = createServerFn({ method: "POST" })
-  .inputValidator((i: { jobId: string }) => z.object({ jobId: z.string().uuid() }).parse(i))
-  .handler(async ({ data }) => {
+export async function executePump(jobId: string) {
     const sb = await admin();
-    const { data: job, error } = await sb.from("ingest_jobs").select("*").eq("id", data.jobId).maybeSingle();
+    const { data: job, error } = await sb.from("ingest_jobs").select("*").eq("id", jobId).maybeSingle();
     if (error) throw error;
     if (!job) throw new Error("job_not_found");
     if (job.status === "done" || job.status === "cancelled") {
@@ -475,6 +477,12 @@ export const pumpIngest = createServerFn({ method: "POST" })
     }
 
     return { status: finalStatus, chunksDone: job.chunks_done, chunkCount: job.chunk_count };
+}
+
+export const pumpIngest = createServerFn({ method: "POST" })
+  .inputValidator((i: { jobId: string }) => z.object({ jobId: z.string().uuid() }).parse(i))
+  .handler(async ({ data }) => {
+    return executePump(data.jobId);
   });
 
 export const listIngestJobs = createServerFn({ method: "GET" }).handler(async () => {

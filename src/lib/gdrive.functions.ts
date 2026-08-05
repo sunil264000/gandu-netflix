@@ -138,17 +138,8 @@ export function resolveGDriveUrl(sourceUrl: string): string | null {
   return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
 }
 
-export const startGDriveIngest = createServerFn({ method: "POST" })
-  .inputValidator((i: { url: string; categoryId?: string | null }) =>
-    z
-      .object({
-        url: z.string().url().max(4000),
-        categoryId: z.string().uuid().nullable().optional(),
-      })
-      .parse(i),
-  )
-  .handler(async ({ data }) => {
-    const parsed = extractDriveId(data.url);
+export async function executeStartGDriveIngest(url: string, categoryId?: string | null) {
+    const parsed = extractDriveId(url);
     if (!parsed) throw new Error("Could not extract a valid Google Drive folder or file ID from the URL.");
 
     const apiKey = getApiKey();
@@ -243,6 +234,18 @@ export const startGDriveIngest = createServerFn({ method: "POST" })
 
       results.push({ jobId: job.id as string, videoId: video.id as string, title });
     }
+    return { importedCount: filesToImport.length, jobs: results };
+}
 
-    return { importedCount: results.length, jobs: results };
+export const startGDriveIngest = createServerFn({ method: "POST" })
+  .inputValidator((i: { url: string; categoryId?: string | null }) =>
+    z
+      .object({
+        url: z.string().url().max(4000),
+        categoryId: z.string().uuid().nullable().optional(),
+      })
+      .parse(i),
+  )
+  .handler(async ({ data }) => {
+    return executeStartGDriveIngest(data.url, data.categoryId);
   });
