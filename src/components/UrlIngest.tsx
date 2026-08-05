@@ -19,6 +19,15 @@ function fmtBytes(b: number) {
   return (b / 1e3).toFixed(0) + " KB";
 }
 
+function formatTime(seconds: number) {
+  if (!isFinite(seconds) || seconds < 0) return "--:--";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s}s`;
+}
+
 function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
   const [displayBytes, setDisplayBytes] = useState(Number(j.bytes_done));
   const [displaySpeed, setDisplaySpeed] = useState(Number(j.last_speed_bps ?? 0));
@@ -60,6 +69,9 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
 
   const pct = j.total_bytes ? Math.min(100, (displayBytes / Number(j.total_bytes)) * 100) : 0;
   const speed = displaySpeed > 0 ? `${(displaySpeed / 1e6).toFixed(1)} MB/s` : "";
+  const remainingBytes = Number(j.total_bytes) - displayBytes;
+  const etaSeconds = displaySpeed > 0 ? remainingBytes / displaySpeed : 0;
+  const eta = etaSeconds > 0 ? ` · ETA ${formatTime(etaSeconds)}` : "";
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -68,7 +80,10 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
           <p className="truncate text-sm font-medium">{j.file_name}</p>
           <p className="text-[11px] text-white/45">
             {fmtBytes(displayBytes)} / {fmtBytes(Number(j.total_bytes))}
-            {speed ? ` · ${speed}` : ""} · {j.status === "running" && j.updated_at && (Date.now() - new Date(j.updated_at).getTime() > 20000) ? "stalled (click resume)" : (post[j.id] ?? j.status)}
+            {speed ? ` · ${speed}` : ""}
+            {eta}
+            {` · `}
+            {j.status === "running" && j.updated_at && (Date.now() - new Date(j.updated_at).getTime() > 20000) ? "stalled (click resume)" : (post[j.id] ?? (j.status === "queued" && speed === "" ? "queued (waiting...)" : j.status))}
           </p>
         </div>
         <span className="text-xs tabular-nums text-white/70">{pct.toFixed(1)}%</span>
@@ -208,12 +223,28 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
     [_poster, _attach, qc, onDone],
   );
 
-  // Keep every unfinished job moving: one in-flight pump per job at a time.
+  // Keep unfinished jobs moving, but limit concurrency via a queue
   useEffect(() => {
     const active = (jobs.data ?? []).filter((j) => j.status === "queued" || j.status === "running");
-    for (const job of active) {
+    
+    // Sort so running jobs get priority
+    const sorted = [...active].sort((a, b) => {
+      if (a.status === "running" && b.status !== "running") return -1;
+      if (b.status === "running" && a.status !== "running") return 1;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+
+    let activePumps = pumping.current.size;
+    const MAX_CONCURRENT = 2; // Only download 2 files at a time to save bandwidth/memory
+
+    for (const job of sorted) {
       if (pumping.current.has(job.id)) continue;
+      
+      if (activePumps >= MAX_CONCURRENT) break;
+      
       pumping.current.add(job.id);
+      activePumps++;
+
       void (async () => {
         try {
           for (;;) {
@@ -228,6 +259,8 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
           /* surfaced through the job row */
         } finally {
           pumping.current.delete(job.id);
+          // Trigger a re-evaluation of the queue immediately
+          qc.invalidateQueries({ queryKey: ["admin:ingest"] });
         }
       })();
     }
