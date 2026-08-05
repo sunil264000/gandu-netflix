@@ -261,9 +261,6 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
   throw new Error(`part ${start}-${end} failed: ${String(lastErr)}`);
 }
 
-
-export const activeIngests = new Map<string, AbortController>();
-
 export const pumpIngest = createServerFn({ method: "POST" })
   .inputValidator((i: { jobId: string }) => z.object({ jobId: z.string().uuid() }).parse(i))
   .handler(async ({ data }) => {
@@ -271,16 +268,9 @@ export const pumpIngest = createServerFn({ method: "POST" })
     const { data: job, error } = await sb.from("ingest_jobs").select("*").eq("id", data.jobId).maybeSingle();
     if (error) throw error;
     if (!job) throw new Error("job_not_found");
-    if (job.status === "done") {
+    if (job.status === "done" || job.status === "cancelled") {
       return { status: job.status as string, chunksDone: job.chunks_done, chunkCount: job.chunk_count };
     }
-
-    if (activeIngests.has(job.id)) {
-      return { status: "running", chunksDone: job.chunks_done, chunkCount: job.chunk_count };
-    }
-
-    const abortCtrl = new AbortController();
-    activeIngests.set(job.id, abortCtrl);
 
     let finalStatus = "running";
     try {
@@ -320,7 +310,6 @@ export const pumpIngest = createServerFn({ method: "POST" })
         let finishedSkipping = bytesToSkip === 0;
         
         const uploadChunk = async (buf: Uint8Array, index: number) => {
-          if (abortCtrl.signal.aborted) throw new Error("cancelled");
           const uploadCtrl = new AbortController();
           const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
           try {
@@ -344,7 +333,6 @@ export const pumpIngest = createServerFn({ method: "POST" })
         let nextIndex = done;
         
         while (nextIndex < job.chunk_count) {
-          if (abortCtrl.signal.aborted) throw new Error("cancelled");
           if (bgError) throw bgError;
           
           const { done: streamDone, value } = await reader.read();
@@ -409,14 +397,11 @@ export const pumpIngest = createServerFn({ method: "POST" })
         // We only do ONE batch of PARALLEL_PARTS per request to avoid worker timeout.
         // The client-side pump will call this endpoint repeatedly until done.
         if (done < job.chunk_count) {
-          if (abortCtrl.signal.aborted) throw new Error("cancelled");
-          
           const batch: number[] = [];
           for (let k = 0; k < PARALLEL_PARTS && done + k < job.chunk_count; k += 1) batch.push(done + k);
 
           await Promise.all(
             batch.map(async (index) => {
-              if (abortCtrl.signal.aborted) throw new Error("cancelled");
               const start = index * cs;
               const end = Math.min(total - 1, start + cs - 1);
               const buf = await fetchPart(sourceUrl, start, end);
@@ -460,13 +445,9 @@ export const pumpIngest = createServerFn({ method: "POST" })
           .eq("id", job.id);
       }
     } catch (e) {
-      if (!abortCtrl.signal.aborted) {
-        const message = e instanceof Error ? e.message : String(e);
-        await sb.from("ingest_jobs").update({ status: "error", error: message.slice(0, 500) }).eq("id", job.id);
-        finalStatus = "error";
-      }
-    } finally {
-      activeIngests.delete(job.id);
+      const message = e instanceof Error ? e.message : String(e);
+      await sb.from("ingest_jobs").update({ status: "error", error: message.slice(0, 500) }).eq("id", job.id);
+      finalStatus = "error";
     }
 
     return { status: finalStatus, chunksDone: job.chunks_done, chunkCount: job.chunk_count };
@@ -506,9 +487,6 @@ export const cancelIngest = createServerFn({ method: "POST" })
     const { data: job } = await sb.from("ingest_jobs").select("*").eq("id", data.jobId).maybeSingle();
     if (!job) return { ok: true };
     await sb.from("ingest_jobs").update({ status: "cancelled" }).eq("id", job.id);
-    
-    const abortCtrl = activeIngests.get(job.id);
-    if (abortCtrl) abortCtrl.abort();
 
     if (data.deleteVideo) {
       const paths: string[] = [];
