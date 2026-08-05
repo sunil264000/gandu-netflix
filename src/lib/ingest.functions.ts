@@ -117,12 +117,10 @@ export const startUrlIngest = createServerFn({ method: "POST" })
       throw new Error(
         "Could not read the file size from that link — it may need a login, be an HTML page, or be a temporary link that has expired.",
       );
-    if (!info.ranges)
-      throw new Error(
-        "That host does not allow resumable (range) downloads, so the import cannot be chunked. Try a direct-download mirror link.",
-      );
-
     const fileName = safeName(nameFromUrl(data.url, info.disp));
+    if (!info.ranges) {
+      data.url = data.url.includes("#") ? data.url.replace(/#.*$/, "#norange") : data.url + "#norange";
+    }
     const ext = fileName.split(".").pop()?.toLowerCase() ?? "mp4";
     const { prettyTitle } = await import("@/lib/poster.server");
     // Imported links are release names; show a clean title in the library.
@@ -232,45 +230,124 @@ export const pumpIngest = createServerFn({ method: "POST" })
     const t0 = Date.now();
     let bytesThisPump = 0;
 
+    const isNoRange = job.source_url.endsWith("#norange");
+    const cleanUrl = job.source_url.replace(/#norange$/, "");
+    const sourceUrl = resolveGDriveUrl(cleanUrl) ?? cleanUrl;
+
     try {
-      while (done < job.chunk_count && Date.now() - t0 < PUMP_BUDGET_MS) {
-        const batch: number[] = [];
-        for (let k = 0; k < PARALLEL_PARTS && done + k < job.chunk_count; k += 1) batch.push(done + k);
-
-        await Promise.all(
-          batch.map(async (index) => {
-            const start = index * cs;
-            const end = Math.min(total - 1, start + cs - 1);
-            const sourceUrl = resolveGDriveUrl(job.source_url) ?? job.source_url;
-            const buf = await fetchPart(sourceUrl, start, end);
-            bytesThisPump += buf.byteLength;
-            const uploadCtrl = new AbortController();
-            const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
-            try {
-              const { error: upErr } = await sb.storage
-                .from("videos")
-                .upload(partPath(job.storage_path, index), new Blob([buf]), {
-                  upsert: true,
-                  contentType: "application/octet-stream",
-                  cacheControl: "31536000",
-                });
-              if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
-            } finally {
-              clearTimeout(uploadTimer);
+      if (isNoRange) {
+        // For non-range hosts, we MUST fetch the stream linearly and upload parts on the fly.
+        // We will run until the stream completes, ignoring PUMP_BUDGET_MS.
+        let origin = "";
+        try { origin = new URL(sourceUrl).origin + "/"; } catch {}
+        const res = await fetch(sourceUrl, {
+          headers: { "user-agent": BROWSER_UA, accept: "*/*", ...(origin ? { referer: origin } : {}) },
+          redirect: "follow",
+        });
+        if (!res.ok || !res.body) throw new Error(`source responded ${res.status}`);
+        
+        const reader = res.body.getReader();
+        let bytesToSkip = done * cs;
+        
+        let currentChunk = new Uint8Array(cs);
+        let currentChunkLen = 0;
+        
+        while (done < job.chunk_count) {
+          const { done: streamDone, value } = await reader.read();
+          if (streamDone) {
+            if (currentChunkLen > 0) {
+              const buf = currentChunk.slice(0, currentChunkLen);
+              const index = done;
+              const uploadCtrl = new AbortController();
+              const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
+              try {
+                const { error: upErr } = await sb.storage.from("videos").upload(partPath(job.storage_path, index), new Blob([buf]), { upsert: true, contentType: "application/octet-stream", cacheControl: "31536000" });
+                if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
+              } finally { clearTimeout(uploadTimer); }
+              done++;
             }
-          }),
-        );
+            break;
+          }
+          
+          let chunk = value;
+          if (bytesToSkip > 0) {
+            if (chunk.byteLength <= bytesToSkip) {
+              bytesToSkip -= chunk.byteLength;
+              continue;
+            } else {
+              chunk = chunk.slice(bytesToSkip);
+              bytesToSkip = 0;
+            }
+          }
+          
+          let offset = 0;
+          while (offset < chunk.byteLength) {
+            const take = Math.min(chunk.byteLength - offset, cs - currentChunkLen);
+            currentChunk.set(chunk.subarray(offset, offset + take), currentChunkLen);
+            currentChunkLen += take;
+            offset += take;
+            
+            if (currentChunkLen === cs) {
+              const buf = currentChunk.slice(0, cs);
+              const index = done;
+              const uploadCtrl = new AbortController();
+              const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
+              try {
+                const { error: upErr } = await sb.storage.from("videos").upload(partPath(job.storage_path, index), new Blob([buf]), { upsert: true, contentType: "application/octet-stream", cacheControl: "31536000" });
+                if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
+              } finally { clearTimeout(uploadTimer); }
+              done++;
+              bytesThisPump += cs;
+              currentChunkLen = 0;
+              
+              const elapsed = (Date.now() - t0) / 1000;
+              await sb.from("ingest_jobs").update({
+                chunks_done: done,
+                bytes_done: Math.min(total, done * cs),
+                last_speed_bps: elapsed > 0 ? bytesThisPump / elapsed : null,
+              }).eq("id", job.id);
+            }
+          }
+        }
+      } else {
+        while (done < job.chunk_count && Date.now() - t0 < PUMP_BUDGET_MS) {
+          const batch: number[] = [];
+          for (let k = 0; k < PARALLEL_PARTS && done + k < job.chunk_count; k += 1) batch.push(done + k);
 
-        done += batch.length;
-        const elapsed = (Date.now() - t0) / 1000;
-        await sb
-          .from("ingest_jobs")
-          .update({
-            chunks_done: done,
-            bytes_done: Math.min(total, done * cs),
-            last_speed_bps: elapsed > 0 ? bytesThisPump / elapsed : null,
-          })
-          .eq("id", job.id);
+          await Promise.all(
+            batch.map(async (index) => {
+              const start = index * cs;
+              const end = Math.min(total - 1, start + cs - 1);
+              const buf = await fetchPart(sourceUrl, start, end);
+              bytesThisPump += buf.byteLength;
+              const uploadCtrl = new AbortController();
+              const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
+              try {
+                const { error: upErr } = await sb.storage
+                  .from("videos")
+                  .upload(partPath(job.storage_path, index), new Blob([buf]), {
+                    upsert: true,
+                    contentType: "application/octet-stream",
+                    cacheControl: "31536000",
+                  });
+                if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
+              } finally {
+                clearTimeout(uploadTimer);
+              }
+            }),
+          );
+
+          done += batch.length;
+          const elapsed = (Date.now() - t0) / 1000;
+          await sb
+            .from("ingest_jobs")
+            .update({
+              chunks_done: done,
+              bytes_done: Math.min(total, done * cs),
+              last_speed_bps: elapsed > 0 ? bytesThisPump / elapsed : null,
+            })
+            .eq("id", job.id);
+        }
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
