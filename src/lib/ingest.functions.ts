@@ -278,7 +278,7 @@ export async function executePump(jobId: string) {
     const sb = await admin();
     const { data: job, error } = await sb.from("ingest_jobs").select("*").eq("id", jobId).maybeSingle();
     if (error) throw error;
-    if (!job) throw new Error("job_not_found");
+    if (!job) return { status: "cancelled", chunksDone: 0, chunkCount: 0 };
     if (job.status === "done" || job.status === "cancelled") {
       return { status: job.status as string, chunksDone: job.chunks_done, chunkCount: job.chunk_count };
     }
