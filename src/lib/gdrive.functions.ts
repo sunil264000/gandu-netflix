@@ -4,7 +4,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-const CHUNK_SIZE = 24 * 1024 * 1024; // 24 MB
+const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB — must match ingest.functions.ts
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
 
 async function admin() {
@@ -135,7 +135,8 @@ export function resolveGDriveUrl(sourceUrl: string): string | null {
   const fileId = sourceUrl.slice(7);
   const apiKey = typeof process !== 'undefined' ? process.env.GOOGLE_DRIVE_API_KEY : undefined;
   if (!apiKey) return null;
-  return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
+  // acknowledgeAbuse=true is REQUIRED for large files — without it Google returns 403
+  return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&acknowledgeAbuse=true&key=${apiKey}`;
 }
 
 export async function executeStartGDriveIngest(url: string, categoryId?: string | null) {
