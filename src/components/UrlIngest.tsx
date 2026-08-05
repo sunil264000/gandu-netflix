@@ -92,11 +92,15 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
         )}
         <button
           onClick={async () => {
-            const wipe = j.status !== "done";
-            if (wipe && !confirm("Cancel this import and delete what was fetched?")) return;
-            await _cancel({ data: { jobId: j.id, deleteVideo: wipe } });
-            qc.invalidateQueries({ queryKey: ["admin:ingest"] });
-            onDone();
+            try {
+              const wipe = j.status !== "done";
+              if (wipe && !confirm("Cancel this import and delete what was fetched?")) return;
+              await _cancel({ data: { jobId: j.id, deleteVideo: wipe } });
+              qc.invalidateQueries({ queryKey: ["admin:ingest"] });
+              onDone();
+            } catch (e: any) {
+              alert("Failed to delete: " + (e.message || String(e)));
+            }
           }}
           className="rounded p-1.5 text-white/40 hover:bg-red-500/10 hover:text-red-400"
         >

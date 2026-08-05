@@ -466,14 +466,21 @@ export const cancelIngest = createServerFn({ method: "POST" })
         }
       }
       if (job.video_id) {
-        await sb.from("favorites").delete().eq("video_id", job.video_id);
-        await sb.from("watch_history").delete().eq("video_id", job.video_id);
+        const { error: favErr } = await sb.from("favorites").delete().eq("video_id", job.video_id);
+        if (favErr) throw new Error("Favorites delete error: " + favErr.message);
+
+        const { error: histErr } = await sb.from("watch_history").delete().eq("video_id", job.video_id);
+        if (histErr) throw new Error("History delete error: " + histErr.message);
       }
+      
       // Delete ingest_job FIRST to satisfy the foreign key constraint
-      await sb.from("ingest_jobs").delete().eq("id", job.id);
+      const { error: ingErr } = await sb.from("ingest_jobs").delete().eq("id", job.id);
+      if (ingErr) throw new Error("Ingest delete error: " + ingErr.message);
+
       if (job.video_id) {
         // Now it's safe to delete the video
-        await sb.from("videos").delete().eq("id", job.video_id);
+        const { error: vidErr } = await sb.from("videos").delete().eq("id", job.video_id);
+        if (vidErr) throw new Error("Video delete error: " + vidErr.message);
       }
     }
     return { ok: true };
