@@ -222,16 +222,25 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
     [_poster, _attach, qc, onDone],
   );
 
-  // Keep unfinished jobs moving, but limit concurrency via a queue
+  // Keep unfinished jobs moving, but limit concurrency via a queue.
+  // Also auto-resume errored GDrive jobs (rate limit 403s are transient).
   useEffect(() => {
-    const active = (jobs.data ?? []).filter((j) => j.status === "queued" || j.status === "running");
+    const allJobs = jobs.data ?? [];
+    const active = allJobs.filter((j) => j.status === "queued" || j.status === "running");
+    // Auto-retry errored jobs unless the error says "expired" (permanent failure)
+    const retryable = allJobs.filter(
+      (j) => j.status === "error" && j.error && !j.error.includes("expired"),
+    );
     
-    // Sort so running jobs get priority
-    const sorted = [...active].sort((a, b) => {
-      if (a.status === "running" && b.status !== "running") return -1;
-      if (b.status === "running" && a.status !== "running") return 1;
-      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    });
+    // Sort so running jobs get priority, then queued, then retryable
+    const sorted = [
+      ...active.sort((a, b) => {
+        if (a.status === "running" && b.status !== "running") return -1;
+        if (b.status === "running" && a.status !== "running") return 1;
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      }),
+      ...retryable.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
+    ];
 
     let activePumps = pumping.current.size;
     const MAX_CONCURRENT = 2; // Only download 2 files at a time to save bandwidth/memory
@@ -244,8 +253,14 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
       pumping.current.add(job.id);
       activePumps++;
 
+      const isRetry = job.status === "error";
+
       void (async () => {
         try {
+          // If this is an auto-retry of an errored job, wait 5s before hammering the source again
+          if (isRetry) {
+            await new Promise((r) => setTimeout(r, 5000));
+          }
           for (;;) {
             const r = await _pump({ data: { jobId: job.id } });
             qc.invalidateQueries({ queryKey: ["admin:ingest"] });
