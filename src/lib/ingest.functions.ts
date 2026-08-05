@@ -218,6 +218,13 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
       
       if (!res.ok && res.status !== 206) {
         if (res.body) await res.body.cancel().catch(() => {});
+        // 401/403/410 = link expired or revoked, retrying won't help
+        if (res.status === 401 || res.status === 403 || res.status === 410) {
+          throw Object.assign(
+            new Error(`Source link returned ${res.status} — the download link has expired. Please start a new import with a fresh link.`),
+            { noRetry: true },
+          );
+        }
         throw new Error(`source responded ${res.status}`);
       }
 
@@ -256,7 +263,8 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
       // Return a properly sized ArrayBuffer containing exactly what we read
       return chunk.buffer.slice(0, offset);
       
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.noRetry) throw e;
       lastErr = e;
       await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
     }
