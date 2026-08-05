@@ -11,7 +11,7 @@ import { resolveGDriveUrl } from "@/lib/gdrive.functions";
 
 const CHUNK_SIZE = 24 * 1024 * 1024; // 24 MB parts (matches the streaming reader)
 const PUMP_BUDGET_MS = 18_000;
-const PARALLEL_PARTS = 2;
+const PARALLEL_PARTS = 8;
 const FETCH_RETRIES = 4;
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
 
@@ -252,19 +252,44 @@ export const pumpIngest = createServerFn({ method: "POST" })
         let currentChunk = new Uint8Array(cs);
         let currentChunkLen = 0;
         
-        while (done < job.chunk_count) {
+        let highestCompleted = done;
+        const finishedIndexes = new Set<number>();
+        const activeUploads: Promise<void>[] = [];
+        let bgError: any = null;
+        
+        const uploadChunk = async (buf: Uint8Array, index: number) => {
+          const uploadCtrl = new AbortController();
+          const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
+          try {
+            const { error: upErr } = await sb.storage.from("videos").upload(partPath(job.storage_path, index), new Blob([buf]), { upsert: true, contentType: "application/octet-stream", cacheControl: "31536000" });
+            if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
+            
+            finishedIndexes.add(index);
+            while (finishedIndexes.has(highestCompleted)) {
+              highestCompleted++;
+            }
+            
+            const elapsed = (Date.now() - t0) / 1000;
+            sb.from("ingest_jobs").update({
+              chunks_done: highestCompleted,
+              bytes_done: Math.min(total, highestCompleted * cs),
+              last_speed_bps: elapsed > 0 ? ((highestCompleted - done) * cs) / elapsed : null,
+            }).eq("id", job.id).then();
+          } finally { clearTimeout(uploadTimer); }
+        };
+        
+        let nextIndex = done;
+        
+        while (nextIndex < job.chunk_count) {
+          if (bgError) throw bgError;
+          
           const { done: streamDone, value } = await reader.read();
           if (streamDone) {
             if (currentChunkLen > 0) {
               const buf = currentChunk.slice(0, currentChunkLen);
-              const index = done;
-              const uploadCtrl = new AbortController();
-              const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
-              try {
-                const { error: upErr } = await sb.storage.from("videos").upload(partPath(job.storage_path, index), new Blob([buf]), { upsert: true, contentType: "application/octet-stream", cacheControl: "31536000" });
-                if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
-              } finally { clearTimeout(uploadTimer); }
-              done++;
+              const p = uploadChunk(buf, nextIndex).catch(e => { bgError = e; });
+              activeUploads.push(p);
+              nextIndex++;
             }
             break;
           }
@@ -289,26 +314,25 @@ export const pumpIngest = createServerFn({ method: "POST" })
             
             if (currentChunkLen === cs) {
               const buf = currentChunk.slice(0, cs);
-              const index = done;
-              const uploadCtrl = new AbortController();
-              const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
-              try {
-                const { error: upErr } = await sb.storage.from("videos").upload(partPath(job.storage_path, index), new Blob([buf]), { upsert: true, contentType: "application/octet-stream", cacheControl: "31536000" });
-                if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
-              } finally { clearTimeout(uploadTimer); }
-              done++;
-              bytesThisPump += cs;
-              currentChunkLen = 0;
+              const p = uploadChunk(buf, nextIndex).catch(e => { bgError = e; });
+              activeUploads.push(p);
+              p.finally(() => {
+                activeUploads.splice(activeUploads.indexOf(p), 1);
+              });
               
-              const elapsed = (Date.now() - t0) / 1000;
-              await sb.from("ingest_jobs").update({
-                chunks_done: done,
-                bytes_done: Math.min(total, done * cs),
-                last_speed_bps: elapsed > 0 ? bytesThisPump / elapsed : null,
-              }).eq("id", job.id);
+              if (activeUploads.length >= PARALLEL_PARTS) {
+                await Promise.race(activeUploads);
+              }
+              
+              nextIndex++;
+              currentChunkLen = 0;
             }
           }
         }
+        
+        await Promise.all(activeUploads);
+        if (bgError) throw bgError;
+        done = highestCompleted;
       } else {
         while (done < job.chunk_count && Date.now() - t0 < PUMP_BUDGET_MS) {
           const batch: number[] = [];
