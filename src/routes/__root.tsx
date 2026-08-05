@@ -125,6 +125,14 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        console.error('MegaBuffer SW registration failed:', err);
+      });
+    }
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <style>{fxKeyframes}</style>
@@ -136,3 +144,4 @@ function RootComponent() {
     </QueryClientProvider>
   );
 }
+

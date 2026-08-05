@@ -11,6 +11,7 @@ import { uploadAny } from "@/lib/storageUpload";
 
 import { getVideo, saveProgress, bumpView, listVideos, isFavorite, toggleFavorite, attachAudioTrack, searchVideos } from "@/lib/videos.functions";
 import { parseEpisode, normalizeKey, compareEpisodes, type EpisodeInfo } from "@/lib/series";
+import { pumpMegaBuffer, getMegaBufferStats, clearMegaBuffer } from "@/lib/megabuffer";
 
 
 
@@ -37,6 +38,55 @@ function fmtDur(s: number | null | undefined) {
   if (!s || s <= 0) return "";
   const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = Math.floor(s % 60);
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function MegaBufferWidget({ videoId, totalBytes }: { videoId: string; totalBytes: number }) {
+  const [enabled, setEnabled] = useState(false);
+  const [buffered, setBuffered] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getMegaBufferStats(videoId).then(s => setBuffered(s.bytes)).catch(console.error);
+  }, [videoId]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const ac = new AbortController();
+    pumpMegaBuffer(videoId, totalBytes, ac.signal, (bytes) => {
+      setBuffered(bytes);
+    }).catch(e => {
+      if (e.name !== "AbortError") setError(String(e));
+    });
+    return () => ac.abort();
+  }, [enabled, videoId, totalBytes]);
+
+  const pct = totalBytes > 0 ? Math.min(100, (buffered / totalBytes) * 100) : 0;
+
+  return (
+    <div className="mt-2 rounded-lg border border-purple-500/30 bg-zinc-900/70 px-3 py-2">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold text-white flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5 text-purple-400" />
+            Mega Buffer Engine
+          </p>
+          <p className="text-[10px] text-zinc-400 mt-0.5">
+            {fmtBytes(buffered)} / {fmtBytes(totalBytes)} cached on disk
+          </p>
+        </div>
+        <button
+          onClick={() => setEnabled(e => !e)}
+          className={`px-3 py-1.5 rounded text-[11px] font-bold uppercase tracking-wider transition-colors ${enabled ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
+        >
+          {enabled ? "Buffering..." : "Turn On"}
+        </button>
+      </div>
+      <div className="mt-2 h-1.5 rounded-full bg-white/5 overflow-hidden">
+        <div className="h-full bg-purple-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+      </div>
+      {error && <p className="text-[10px] text-red-400 mt-1">{error}</p>}
+    </div>
+  );
 }
 
 type UpNextItem = {
@@ -272,6 +322,7 @@ function Watch() {
                     </div>
                   </div>
                 )}
+                <MegaBufferWidget videoId={vid.id} totalBytes={Number(vid.size_bytes || 0)} />
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <div className="flex items-start gap-2 text-[11px] text-zinc-400 bg-zinc-900/60 border border-white/5 rounded-lg px-3 py-2">
                     <Headphones className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-400" />
