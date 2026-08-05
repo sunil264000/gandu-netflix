@@ -216,7 +216,7 @@ export async function executeStartGDriveIngest(url: string, categoryId?: string 
           size_bytes: f.size,
           mime_type: f.mimeType,
           extension: ext,
-          category_id: data.categoryId ?? null,
+          category_id: categoryId ?? null,
           uploaded_by: ANON_USER,
           upload_mode: "chunked",
           chunk_size_bytes: CHUNK_SIZE,
