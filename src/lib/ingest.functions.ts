@@ -282,16 +282,15 @@ export const pumpIngest = createServerFn({ method: "POST" })
     const abortCtrl = new AbortController();
     activeIngests.set(job.id, abortCtrl);
 
-    await sb.from("ingest_jobs").update({ status: "running", error: null }).eq("id", job.id);
+    let finalStatus = "running";
+    try {
+      await sb.from("ingest_jobs").update({ status: "running", error: null }).eq("id", job.id);
 
-    // Run the actual ingest in the background
-    void (async () => {
-      try {
-        const cs = Number(job.chunk_size_bytes);
-        const total = Number(job.total_bytes);
-        let done = Number(job.chunks_done);
-        const t0 = Date.now();
-        let bytesThisPump = 0;
+      const cs = Number(job.chunk_size_bytes);
+      const total = Number(job.total_bytes);
+      let done = Number(job.chunks_done);
+      const t0 = Date.now();
+      let bytesThisPump = 0;
 
         const isNoRange = job.source_url.endsWith("#norange");
         const cleanUrl = job.source_url.replace(/#norange$/, "");
@@ -405,9 +404,11 @@ export const pumpIngest = createServerFn({ method: "POST" })
         
         await Promise.all(activeUploads);
         if (bgError) throw bgError;
-        done = highestCompleted;
+        finalStatus = done >= job.chunk_count ? "done" : "running";
       } else {
-        while (done < job.chunk_count) {
+        // We only do ONE batch of PARALLEL_PARTS per request to avoid worker timeout.
+        // The client-side pump will call this endpoint repeatedly until done.
+        if (done < job.chunk_count) {
           if (abortCtrl.signal.aborted) throw new Error("cancelled");
           
           const batch: number[] = [];
@@ -448,26 +449,28 @@ export const pumpIngest = createServerFn({ method: "POST" })
             })
             .eq("id", job.id);
         }
+
+        finalStatus = done >= job.chunk_count ? "done" : "running";
       }
 
-      const finished = done >= job.chunk_count;
-      if (finished) {
+      if (finalStatus === "done") {
         await sb
           .from("ingest_jobs")
           .update({ status: "done", chunks_done: done, bytes_done: total })
           .eq("id", job.id);
       }
     } catch (e) {
-      if (abortCtrl.signal.aborted) return;
-      const message = e instanceof Error ? e.message : String(e);
-      await sb.from("ingest_jobs").update({ status: "error", error: message.slice(0, 500) }).eq("id", job.id);
+      if (!abortCtrl.signal.aborted) {
+        const message = e instanceof Error ? e.message : String(e);
+        await sb.from("ingest_jobs").update({ status: "error", error: message.slice(0, 500) }).eq("id", job.id);
+        finalStatus = "error";
+      }
     } finally {
       activeIngests.delete(job.id);
     }
-  })();
 
-  return { status: "running", chunksDone: job.chunks_done, chunkCount: job.chunk_count };
-});
+    return { status: finalStatus, chunksDone: job.chunks_done, chunkCount: job.chunk_count };
+  });
 
 export const listIngestJobs = createServerFn({ method: "GET" }).handler(async () => {
   const sb = await admin();
