@@ -184,23 +184,75 @@ async function fetchPart(url: string, start: number, end: number): Promise<Array
       } catch {
         /* ignore */
       }
-      const res = await fetch(url, {
-        headers: {
-          range: `bytes=${start}-${end}`,
-          "user-agent": BROWSER_UA,
-          accept: "*/*",
-          ...(origin ? { referer: origin } : {}),
-        },
-        redirect: "follow",
-      });
-      if (res.status === 200 && want < Number(res.headers.get("content-length") ?? 0)) {
-        throw new Error("host ignored the range request");
+      
+      let redirectUrl = url;
+      let res: Response;
+      let redirectCount = 0;
+      
+      // Manually follow redirects to ensure the Range header is never stripped by the fetch client
+      while (true) {
+        if (redirectCount > 5) throw new Error("too many redirects");
+        res = await fetch(redirectUrl, {
+          headers: {
+            range: `bytes=${start}-${end}`,
+            "user-agent": BROWSER_UA,
+            accept: "*/*",
+            ...(origin ? { referer: origin } : {}),
+          },
+          redirect: "manual",
+        });
+        
+        if (res.status >= 300 && res.status < 400 && res.headers.has("location")) {
+          const loc = res.headers.get("location")!;
+          redirectUrl = new URL(loc, redirectUrl).toString();
+          redirectCount++;
+          // Be sure to consume or cancel the body of the redirect response to avoid leaks
+          if (res.body) await res.body.cancel().catch(() => {});
+          continue;
+        }
+        break;
       }
-      if (res.status !== 206 && res.status !== 200) throw new Error(`source responded ${res.status}`);
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength === 0) throw new Error("empty part");
-      if (buf.byteLength > want) throw new Error("host returned more data than requested");
-      return buf;
+      
+      if (!res.ok && res.status !== 206) {
+        if (res.body) await res.body.cancel().catch(() => {});
+        throw new Error(`source responded ${res.status}`);
+      }
+
+      // If the server returns 200 OK, it ignored the Range header and is sending the whole file from byte 0.
+      // If we requested start > 0, we'd be saving the wrong bytes, so we must abort.
+      if (res.status === 200 && start > 0) {
+        if (res.body) await res.body.cancel().catch(() => {});
+        throw new Error("host ignored the range request and returned 200 OK for a non-zero start");
+      }
+
+      // To prevent OOM if the server sends way more data than requested (e.g. ignored Range but start=0),
+      // we must read EXACTLY 'want' bytes using the reader, and then cancel the stream.
+      if (!res.body) throw new Error("empty body");
+      const reader = res.body.getReader();
+      const chunk = new Uint8Array(want);
+      let offset = 0;
+      
+      while (offset < want) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const take = Math.min(value.byteLength, want - offset);
+        chunk.set(value.subarray(0, take), offset);
+        offset += take;
+        
+        // If the server sent more than we need, we got what we came for, stop reading!
+        if (offset >= want) {
+          await reader.cancel().catch(() => {});
+          break;
+        }
+      }
+      
+      if (offset === 0) throw new Error("empty part");
+      
+      // If the stream ended before we got all the bytes, that's fine for the final chunk of the file
+      // Return a properly sized ArrayBuffer containing exactly what we read
+      return chunk.buffer.slice(0, offset);
+      
     } catch (e) {
       lastErr = e;
       await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
