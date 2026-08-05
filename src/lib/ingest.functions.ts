@@ -100,19 +100,19 @@ export async function executeStartUrlIngest(url: string, title?: string, categor
     if (!/^https?:$/.test(new URL(url).protocol)) throw new Error("Only http(s) links are supported");
     const sb = await admin();
 
-    const info = await probe(data.url);
+    const info = await probe(url);
     if (!info.size || info.size < 1024)
       throw new Error(
         "Could not read the file size from that link — it may need a login, be an HTML page, or be a temporary link that has expired.",
       );
-    const fileName = safeName(nameFromUrl(data.url, info.disp));
+    const fileName = safeName(nameFromUrl(url, info.disp));
     if (!info.ranges) {
-      data.url = data.url.includes("#") ? data.url.replace(/#.*$/, "#norange") : data.url + "#norange";
+      url = url.includes("#") ? url.replace(/#.*$/, "#norange") : url + "#norange";
     }
     const ext = fileName.split(".").pop()?.toLowerCase() ?? "mp4";
     const { prettyTitle } = await import("@/lib/poster.server");
     // Imported links are release names; show a clean title in the library.
-    const title = data.title?.trim() || prettyTitle(fileName);
+    const finalTitle = title?.trim() || prettyTitle(fileName);
 
     const chunkCount = Math.ceil(info.size / CHUNK_SIZE);
     const storagePath = `ingest/${crypto.randomUUID()}/${storageSafe(fileName)}`;
@@ -120,12 +120,12 @@ export async function executeStartUrlIngest(url: string, title?: string, categor
     const { data: video, error: vErr } = await sb
       .from("videos")
       .insert({
-        title,
+        title: finalTitle,
         storage_path: storagePath,
         size_bytes: info.size,
         mime_type: info.type ?? null,
         extension: ext,
-        category_id: data.categoryId ?? null,
+        category_id: categoryId ?? null,
         uploaded_by: ANON_USER,
         upload_mode: "chunked",
         chunk_size_bytes: CHUNK_SIZE,
@@ -139,7 +139,7 @@ export async function executeStartUrlIngest(url: string, title?: string, categor
       .from("ingest_jobs")
       .insert({
         video_id: video.id,
-        source_url: data.url,
+        source_url: url,
         file_name: fileName,
         storage_path: storagePath,
         total_bytes: info.size,
