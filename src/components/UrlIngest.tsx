@@ -27,7 +27,10 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
   }, [j.bytes_done]);
 
   useEffect(() => {
-    if (j.status !== "running" || !j.last_speed_bps || j.last_speed_bps <= 0) return;
+    // If the database row hasn't been updated in 20 seconds, the server process likely crashed (OOM) or stalled.
+    const isStalled = j.updated_at ? (Date.now() - new Date(j.updated_at).getTime() > 20000) : false;
+    
+    if (j.status !== "running" || !j.last_speed_bps || j.last_speed_bps <= 0 || isStalled) return;
     let lastTime = performance.now();
     let frameId: number;
     let currentSpeed = displaySpeed;
@@ -63,11 +66,11 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
           <p className="truncate text-sm font-medium">{j.file_name}</p>
           <p className="text-[11px] text-white/45">
             {fmtBytes(displayBytes)} / {fmtBytes(Number(j.total_bytes))}
-            {speed ? ` · ${speed}` : ""} · {post[j.id] ?? j.status}
+            {speed ? ` · ${speed}` : ""} · {j.status === "running" && j.updated_at && (Date.now() - new Date(j.updated_at).getTime() > 20000) ? "stalled (click resume)" : (post[j.id] ?? j.status)}
           </p>
         </div>
         <span className="text-xs tabular-nums text-white/70">{pct.toFixed(1)}%</span>
-        {(j.status === "error" || j.status === "cancelled") && (
+        {(j.status === "error" || j.status === "cancelled" || (j.status === "running" && j.updated_at && (Date.now() - new Date(j.updated_at).getTime() > 20000))) && (
           <button
             onClick={async () => {
               try {
