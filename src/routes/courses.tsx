@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { listVideos } from "@/lib/videos.functions";
-import { PageShell } from "@/components/PageShell";
+import { Page, PageHeading } from "@/components/PageShell";
 import { parseEpisode, type EpisodeInfo } from "@/lib/series";
 import { VideoCard } from "@/components/VideoCard";
 import { FolderGit2, Loader2, PlayCircle, ChevronRight, ChevronDown } from "lucide-react";
@@ -74,8 +74,18 @@ function Courses() {
   }, [data]);
 
   return (
-    <PageShell title="Courses" icon={FolderGit2}>
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+    <Page>
+      <PageHeading 
+        title={
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/10 text-white">
+              <FolderGit2 className="h-5 w-5" />
+            </div>
+            <span>Courses</span>
+          </div>
+        } 
+      />
+      <div className="mx-auto max-w-7xl pb-8">
         {isLoading ? (
           <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-white/40" /></div>
         ) : Object.keys(courses).length === 0 ? (
@@ -90,7 +100,7 @@ function Courses() {
           </div>
         )}
       </div>
-    </PageShell>
+    </Page>
   );
 }
 
