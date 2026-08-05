@@ -454,7 +454,7 @@ export const cancelIngest = createServerFn({ method: "POST" })
     const abortCtrl = activeIngests.get(job.id);
     if (abortCtrl) abortCtrl.abort();
 
-    if (data.deleteVideo && job.video_id) {
+    if (data.deleteVideo) {
       const paths: string[] = [];
       for (let i = 0; i < job.chunk_count; i += 1) paths.push(partPath(job.storage_path, i));
       if (paths.length) {
@@ -464,9 +464,12 @@ export const cancelIngest = createServerFn({ method: "POST" })
           /* ignore */
         }
       }
-      await sb.from("favorites").delete().eq("video_id", job.video_id);
-      await sb.from("watch_history").delete().eq("video_id", job.video_id);
-      await sb.from("videos").delete().eq("id", job.video_id);
+      if (job.video_id) {
+        await sb.from("favorites").delete().eq("video_id", job.video_id);
+        await sb.from("watch_history").delete().eq("video_id", job.video_id);
+        await sb.from("videos").delete().eq("id", job.video_id);
+      }
+      await sb.from("ingest_jobs").delete().eq("id", job.id);
     }
     return { ok: true };
   });
