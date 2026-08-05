@@ -81,14 +81,18 @@ async function listDriveFolder(
         const subPath = pathPrefix ? `${pathPrefix}/${f.name}` : f.name;
         const subFiles = await listDriveFolder(f.id, apiKey, subPath, depth + 1);
         files.push(...subFiles);
-      } else if (f.mimeType?.startsWith("video/") && f.size) {
-        files.push({
-          id: f.id,
-          name: f.name,
-          size: Number(f.size),
-          mimeType: f.mimeType,
-          path: pathPrefix,
-        });
+      } else if (f.size) {
+        const isVideoMime = f.mimeType?.startsWith("video/");
+        const isVideoExt = /\.(mp4|mkv|webm|mov|m4v|avi|flv)$/i.test(f.name);
+        if (isVideoMime || isVideoExt) {
+          files.push({
+            id: f.id,
+            name: f.name,
+            size: Number(f.size),
+            mimeType: f.mimeType,
+            path: pathPrefix,
+          });
+        }
       }
     }
 
