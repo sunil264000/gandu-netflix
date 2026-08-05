@@ -1,9 +1,11 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Search, Home, Library, Shield, Film, Activity, Menu, X, Sparkles } from "lucide-react";
+import { FolderGit2 } from "lucide-react";
 
 const NAV = [
   { to: "/", label: "Home", icon: Home },
+  { to: "/courses", label: "Courses", icon: FolderGit2 },
   { to: "/library", label: "Library", icon: Library },
   { to: "/studio", label: "Studio", icon: Sparkles },
   { to: "/uploads", label: "Uploads", icon: Activity },

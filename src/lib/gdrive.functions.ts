@@ -180,17 +180,27 @@ export async function executeStartGDriveIngest(url: string, categoryId?: string 
     });
 
     const results = [];
+    let currentPath = "";
+    let partCounter = 1;
 
     for (let i = 0; i < filesToImport.length; i++) {
       const f = filesToImport[i]!;
       const ext = f.name.split(".").pop()?.toLowerCase() ?? "mp4";
 
-      // Build title: "CourseName / SubFolder - Part X - FileName"
-      const pathLabel = f.path ? `${f.path} - ` : "";
+      // Reset part counter for each new subfolder
+      if (f.path !== currentPath) {
+        currentPath = f.path;
+        partCounter = 1;
+      }
+
+      // Build title: "CourseName - SubFolder - Part X - FileName"
+      const pathLabel = f.path ? `${f.path.replace(/\//g, " - ")} - ` : "";
       const title =
         parsed.type === "folder"
-          ? `${folderName} - ${pathLabel}Part ${i + 1} - ${f.name.replace(/\.[^/.]+$/, "")}`
+          ? `${folderName} - ${pathLabel}Part ${partCounter} - ${f.name.replace(/\.[^/.]+$/, "")}`
           : f.name.replace(/\.[^/.]+$/, "");
+      
+      partCounter++;
 
       const chunkCount = Math.ceil(f.size / CHUNK_SIZE);
       const storagePath = `ingest/${crypto.randomUUID()}/${storageSafe(f.name)}`;
