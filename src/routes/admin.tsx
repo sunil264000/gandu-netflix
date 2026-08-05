@@ -5,6 +5,7 @@ import { useState, useRef } from "react";
 import { Trash2, Plus, Film, HardDrive, Eye, Sparkles, Loader2 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { UploadZone } from "@/components/UploadZone";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import {
   listVideos, listCategories, deleteVideo, updateVideo,
   createCategory, deleteCategory, storageStats, backfillThumbnails,
@@ -55,6 +56,7 @@ function Admin() {
   const [editTitle, setEditTitle] = useState("");
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
+  const [deleteVideo, setDeleteVideo] = useState<{ id: string, title: string } | null>(null);
 
   const vids = useQuery({ queryKey: ["admin:videos"], queryFn: () => _list({ data: { sort: "new", limit: 60 } }) });
   const cats = useQuery({ queryKey: ["admin:cats"], queryFn: () => _cats() });
@@ -197,7 +199,7 @@ function Admin() {
                   />
                   <button onClick={() => nav({ to: "/watch/$slug", params: { slug: v.slug || v.id } })}
                     className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-sm">Watch</button>
-                  <button onClick={async () => { if (confirm(`Delete "${v.title}"?`)) { await _del({ data: { id: v.id } }); refresh(); } }}
+                  <button onClick={() => setDeleteVideo({ id: v.id, title: v.title })}
                     className="p-2 rounded text-white/60 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>
                 </div>
               </div>
@@ -211,6 +213,19 @@ function Admin() {
           </p>
         </section>
       </main>
+
+      <ConfirmModal
+        isOpen={deleteVideo !== null}
+        title="Delete Video"
+        message={`Are you sure you want to permanently delete "${deleteVideo?.title}"? This cannot be undone.`}
+        confirmText="Delete"
+        onConfirm={async () => {
+          if (!deleteVideo) return;
+          await _del({ data: { id: deleteVideo.id } });
+          refresh();
+        }}
+        onCancel={() => setDeleteVideo(null)}
+      />
     </div>
   );
 }

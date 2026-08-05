@@ -10,6 +10,7 @@ import { autoPosterForVideo } from "@/lib/posters.functions";
 import { attachAudioTrack } from "@/lib/videos.functions";
 import { extractCompatibleAudioFromServer, serverRescueSupported, likelyNeedsCompatibleAudio } from "@/lib/audioTranscode";
 import { uploadAny } from "@/lib/storageUpload";
+import { ConfirmModal } from "@/components/ConfirmModal";
 
 function fmtBytes(b: number) {
   if (b >= 1e12) return (b / 1e12).toFixed(2) + " TB";
@@ -21,6 +22,7 @@ function fmtBytes(b: number) {
 function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
   const [displayBytes, setDisplayBytes] = useState(Number(j.bytes_done));
   const [displaySpeed, setDisplaySpeed] = useState(Number(j.last_speed_bps ?? 0));
+  const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
     setDisplayBytes(Number(j.bytes_done));
@@ -91,15 +93,15 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
           </button>
         )}
         <button
-          onClick={async () => {
-            try {
-              const wipe = j.status !== "done";
-              if (wipe && !confirm("Cancel this import and delete what was fetched?")) return;
-              await _cancel({ data: { jobId: j.id, deleteVideo: wipe } });
-              qc.invalidateQueries({ queryKey: ["admin:ingest"] });
-              onDone();
-            } catch (e: any) {
-              alert("Failed to delete: " + (e.message || String(e)));
+          onClick={() => {
+            if (j.status !== "done") setShowConfirm(true);
+            else {
+              _cancel({ data: { jobId: j.id, deleteVideo: false } })
+                .then(() => {
+                  qc.invalidateQueries({ queryKey: ["admin:ingest"] });
+                  onDone();
+                })
+                .catch((e: any) => alert("Failed to clear: " + (e.message || String(e))));
             }
           }}
           className="rounded p-1.5 text-white/40 hover:bg-red-500/10 hover:text-red-400"
@@ -115,6 +117,22 @@ function SmoothJobItem({ j, post, qc, _pump, _cancel, onDone }: any) {
         />
       </div>
       {j.error && <p className="mt-1 truncate text-[11px] text-red-400">{j.error}</p>}
+      <ConfirmModal
+        isOpen={showConfirm}
+        title="Cancel Import"
+        message="Cancel this import and delete what was fetched so far?"
+        confirmText="Cancel Import"
+        onConfirm={async () => {
+          try {
+            await _cancel({ data: { jobId: j.id, deleteVideo: true } });
+            qc.invalidateQueries({ queryKey: ["admin:ingest"] });
+            onDone();
+          } catch (e: any) {
+            alert("Failed to cancel: " + (e.message || String(e)));
+          }
+        }}
+        onCancel={() => setShowConfirm(false)}
+      />
     </div>
   );
 }
