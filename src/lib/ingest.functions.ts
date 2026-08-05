@@ -10,7 +10,7 @@ import { z } from "zod";
 import { resolveGDriveUrl } from "@/lib/gdrive.functions";
 
 const CHUNK_SIZE = 24 * 1024 * 1024; // 24 MB parts
-const PARALLEL_PARTS = 8; // Reverted: 24 causes Out Of Memory crashes
+const PARALLEL_PARTS = 2; // Cloudflare Workers have a 128MB RAM limit. 2 parts * 24MB * 2 (Blob duplication) = 96MB (Safe). 8 parts is guaranteed instant OOM death.
 const FETCH_RETRIES = 4;
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
 
