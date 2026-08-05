@@ -34,6 +34,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
   const [title, setTitle] = useState("");
   const [starting, setStarting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const pumping = useRef<Set<string>>(new Set());
 
   const jobs = useQuery({
@@ -51,7 +52,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
       if (!job.video_id) return;
       const videoId = job.video_id;
       try {
-        setPost((m) => ({ ...m, [job.id]: "Fetching artwork…" }));
+        setPost((m) => ({ ...m, [job.id]: "Fetching artworkâ€¦" }));
         await _poster({ data: { videoId } });
         qc.invalidateQueries({ queryKey: ["admin:videos"] });
       } catch { /* artwork is best-effort */ }
@@ -70,7 +71,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
                 [job.id]: `${p.phase === "converting" ? "Converting audio" : "Reading audio"} ${p.pct.toFixed(0)}%`,
               })),
           });
-          setPost((m) => ({ ...m, [job.id]: "Saving audio…" }));
+          setPost((m) => ({ ...m, [job.id]: "Saving audioâ€¦" }));
           const path = `audio/${videoId}.${res.ext}`;
           await uploadAny("videos", path, new File([res.blob], `${videoId}.${res.ext}`, { type: "audio/mp4" }));
           await _attach({ data: { videoId, path, label: res.label } });
@@ -113,8 +114,14 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
     if (!url.trim()) return;
     setStarting(true);
     setErr(null);
+    setNote(null);
     try {
-      await _start({ data: { url: url.trim(), title: title.trim() || undefined, categoryId } });
+      const result = await _start({ data: { url: url.trim(), title: title.trim() || undefined, categoryId } });
+      if ("folder" in result && result.folder) {
+        setNote(`Queued ${result.count} video${result.count === 1 ? "" : "s"} from that Drive folder.`);
+      } else {
+        setNote("Import queued. The server will download it into your library.");
+      }
       setUrl("");
       setTitle("");
       qc.invalidateQueries({ queryKey: ["admin:ingest"] });
@@ -132,9 +139,9 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
     <section>
       <div className="mb-3 flex items-center gap-2">
         <Link2 className="h-5 w-5 text-red-400" />
-        <h2 className="text-xl font-bold">Import from link</h2>
+        <h2 className="text-xl font-bold">Import from link or Google Drive</h2>
         <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/50">
-          server-side · your data stays free
+          server-side
         </span>
       </div>
 
@@ -142,7 +149,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://host.com/path/Movie.2024.2160p.mkv"
+          placeholder="Direct video link, Google Drive file link, or Google Drive folder link"
           className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-red-500/60"
         />
         <input
@@ -160,6 +167,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
         </button>
       </form>
       {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
+      {note && <p className="mt-2 text-xs text-emerald-400">{note}</p>}
 
       {list.length > 0 && (
         <div className="mt-4 space-y-2">
@@ -173,7 +181,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
                     <p className="truncate text-sm font-medium">{j.file_name}</p>
                     <p className="text-[11px] text-white/45">
                       {fmtBytes(Number(j.bytes_done))} / {fmtBytes(Number(j.total_bytes))}
-                      {speed ? ` · ${speed}` : ""} · {post[j.id] ?? j.status}
+                      {speed ? ` Â· ${speed}` : ""} Â· {post[j.id] ?? j.status}
                     </p>
                   </div>
                   <span className="text-xs tabular-nums text-white/70">{pct.toFixed(1)}%</span>
