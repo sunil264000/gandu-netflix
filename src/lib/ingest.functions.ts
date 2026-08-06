@@ -11,6 +11,7 @@ import { resolveGDriveUrl, gdriveHeaders } from "@/lib/gdrive.functions";
 
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB parts for maximum concurrent throughput without OOM
 const FETCH_RETRIES = 6;
+const PUMP_BUDGET_MS = 40_000; // keep each pump well inside the request budget
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
 
 async function admin() {
@@ -428,7 +429,7 @@ export async function executePump(jobId: string) {
         let nextIndex = done;
         let bgError: any = null;
 
-        while ((nextIndex < job.chunk_count || activeUploads.length > 0) && Date.now() - t0 < 15_000) {
+        while ((nextIndex < job.chunk_count || activeUploads.length > 0) && Date.now() - t0 < PUMP_BUDGET_MS) {
           if (bgError) throw bgError;
 
           // Fill the sliding window up to parallelLimit
@@ -438,7 +439,7 @@ export async function executePump(jobId: string) {
             const end = Math.min(total - 1, start + cs - 1);
 
             const p = (async () => {
-              const buf = await fetchPart(sourceUrl, start, end, isGDrive);
+              const buf = await fetchPart(sourceUrl, start, end, isGDrive, gdriveAuth);
               bytesThisPump += buf.byteLength;
               const uploadCtrl = new AbortController();
               const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
