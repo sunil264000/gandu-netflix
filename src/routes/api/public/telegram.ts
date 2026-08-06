@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getTelegramConfig, sendTelegramMessage } from "@/lib/telegram";
+import { getTelegramConfig, sendTelegramMessage, telegramWebhookSecret } from "@/lib/telegram";
 import { executeStartGDriveIngest } from "@/lib/gdrive.functions";
 import { executeStartUrlIngest, executePump } from "@/lib/ingest.functions";
 
@@ -9,63 +9,71 @@ export const Route = createFileRoute("/api/public/telegram")({
       POST: async ({ request }) => {
         try {
           const { adminChatId } = getTelegramConfig();
-          const body = await request.json().catch(() => ({}));
 
-          // Validate Telegram payload
-          if (!body.message || !body.message.text || !body.message.chat) {
-            return new Response("OK", { status: 200 }); // Ignore silently
+          // Telegram echoes the secret we registered with setWebhook.
+          const expected = await telegramWebhookSecret();
+          const provided = request.headers.get("x-telegram-bot-api-secret-token") ?? "";
+          if (expected && provided !== expected) {
+            return new Response("Unauthorized", { status: 401 });
           }
 
-          const chatId = body.message.chat.id;
-          const text = body.message.text.trim();
+          const body = await request.json().catch(() => ({} as any));
+          const message = body.message ?? body.edited_message;
+          if (!message?.text || !message?.chat) return new Response("OK", { status: 200 });
 
-          // Security check
+          const chatId = message.chat.id;
+          const text = String(message.text).trim();
+
           if (adminChatId && String(chatId) !== String(adminChatId)) {
-            console.warn(`Unauthorized Telegram access attempt from Chat ID: ${chatId}`);
+            console.warn(`Unauthorized Telegram chat: ${chatId}`);
             return new Response("OK", { status: 200 });
           }
 
-          // Extract URL
+          if (/^\/(start|help)/i.test(text)) {
+            await sendTelegramMessage(
+              chatId,
+              `👋 <b>GANDU NETFLIX bot</b>\n\nSend me:\n• a direct video link (.mkv/.mp4/…)\n• a Google Drive file or folder link\n\nI download it on the server and add it to your library automatically.\n\nYour chat ID: <code>${chatId}</code>`,
+            );
+            return new Response("OK", { status: 200 });
+          }
+
           const urlMatch = text.match(/https?:\/\/[^\s]+/);
           if (!urlMatch) {
-            await sendTelegramMessage(chatId, "Send me a direct video link or a Google Drive link, and I will auto-download it.");
+            await sendTelegramMessage(chatId, "Send me a direct video link or a Google Drive link and I'll take it from here.");
             return new Response("OK", { status: 200 });
           }
 
           const url = urlMatch[0];
           const isGDrive = url.includes("drive.google.com") || url.includes("drive.usercontent.google.com");
 
-          await sendTelegramMessage(chatId, "⏳ Scanning link...");
+          await sendTelegramMessage(chatId, "⏳ Scanning link…");
 
-          let result;
+          let jobs: { jobId: string }[] = [];
           try {
             if (isGDrive) {
-              result = await executeStartGDriveIngest(url, null);
-              await sendTelegramMessage(chatId, `✅ <b>Success!</b> Found ${result.importedCount} videos in Google Drive folder.\n\nThey have been added to the queue and will begin downloading automatically.`);
+              const result = await executeStartGDriveIngest(url, null);
+              jobs = result.jobs;
+              await sendTelegramMessage(
+                chatId,
+                `✅ Queued <b>${result.importedCount}</b> video(s) from Google Drive. Downloading now…`,
+              );
             } else {
-              result = await executeStartUrlIngest(url, undefined, null);
-              await sendTelegramMessage(chatId, `✅ <b>Success!</b> Video added to queue and will begin downloading automatically.`);
-              result = { jobs: [{ jobId: result.jobId }] }; // normalize for auto-pump loop
+              const result = await executeStartUrlIngest(url, undefined, null);
+              jobs = [{ jobId: result.jobId }];
+              await sendTelegramMessage(chatId, `✅ Queued <b>${result.totalBytes ? Math.round(result.totalBytes / 1e9 * 10) / 10 + " GB" : "video"}</b>. Downloading now…`);
             }
-
-            // Attempt to kickstart the pump in the background for auto-download
-            // We use Promise.resolve().then() to avoid blocking the webhook response,
-            // though Cloudflare might kill it after a few seconds.
-            if (result.jobs && result.jobs.length > 0) {
-              const jobs = result.jobs;
-              Promise.resolve().then(async () => {
-                for (const job of jobs) {
-                  try {
-                    await executePump(job.jobId);
-                  } catch (e) {
-                    console.error("Auto-pump error", e);
-                  }
-                }
-              });
-            }
-
           } catch (e: any) {
-            await sendTelegramMessage(chatId, `❌ <b>Error:</b>\n<pre>${e.message || String(e)}</pre>`);
+            await sendTelegramMessage(chatId, `❌ <b>Error:</b>\n<pre>${(e?.message || String(e)).slice(0, 500)}</pre>`);
+            return new Response("OK", { status: 200 });
+          }
+
+          // Kick the first pump immediately; the cron worker carries the rest.
+          if (jobs.length) {
+            try {
+              await executePump(jobs[0]!.jobId);
+            } catch (e) {
+              console.error("Auto-pump error", e);
+            }
           }
 
           return new Response("OK", { status: 200 });
