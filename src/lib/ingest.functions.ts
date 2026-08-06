@@ -7,7 +7,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { resolveGDriveUrl } from "@/lib/gdrive.functions";
+import { resolveGDriveUrl, gdriveHeaders } from "@/lib/gdrive.functions";
 
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB parts for maximum concurrent throughput without OOM
 const FETCH_RETRIES = 6;
