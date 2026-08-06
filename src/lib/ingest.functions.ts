@@ -300,13 +300,18 @@ export async function executePump(jobId: string) {
       const t0 = Date.now();
       let bytesThisPump = 0;
 
-      // GDrive rate-limits aggressively, so cap at 2 parallel downloads.
-      // Old 24MB jobs also cap at 2 for memory safety. Everything else gets 8 for max speed.
+      // Parallel connections are what make this fast — a single stream is capped
+      // by the source host, so we saturate several ranged reads at once.
       const isNoRange = job.source_url.endsWith("#norange");
       const cleanUrl = job.source_url.replace(/#norange$/, "");
       const isGDrive = cleanUrl.startsWith("gdrive:");
-      const sourceUrl = resolveGDriveUrl(cleanUrl) ?? cleanUrl;
-      const parallelLimit = isGDrive ? 2 : cs >= 20 * 1024 * 1024 ? 2 : 8;
+      const resolvedGDrive = resolveGDriveUrl(cleanUrl);
+      if (isGDrive && !resolvedGDrive) {
+        throw new Error("Google Drive is not connected — link the Google Drive connector and retry this job.");
+      }
+      const sourceUrl = resolvedGDrive ?? cleanUrl;
+      const gdriveAuth = isGDrive ? (gdriveHeaders() ?? {}) : {};
+      const parallelLimit = isGDrive ? 6 : cs >= 20 * 1024 * 1024 ? 4 : 12;
       if (isNoRange) {
         // For non-range hosts, we MUST fetch the stream linearly and upload parts on the fly.
         // We will run until the stream completes, ignoring PUMP_BUDGET_MS.
