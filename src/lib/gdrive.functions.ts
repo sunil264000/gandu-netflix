@@ -1,11 +1,15 @@
-// Google Drive folder/file import: resolves a public Drive link into individual
+// Google Drive folder/file import: resolves a Drive link into individual
 // video files and queues them for the existing chunked ingest pipeline.
+//
+// All Drive traffic goes through the Lovable connector gateway, which holds the
+// OAuth credentials and refreshes them automatically. No API key lives in the DB.
 
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB — must match ingest.functions.ts
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
+const GATEWAY = "https://connector-gateway.lovable.dev/google_drive/drive/v3";
 
 async function admin() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -33,65 +37,65 @@ function extractDriveId(url: string): { id: string; type: "folder" | "file" } | 
   return null;
 }
 
-function getApiKey(): string {
-  const apiKey = typeof process !== 'undefined' ? process.env.GOOGLE_DRIVE_API_KEY : undefined;
-  if (!apiKey) {
-    throw new Error("GOOGLE_DRIVE_API_KEY environment variable is not set. Please configure it in your environment.");
-  }
-  return apiKey;
+/**
+ * Auth headers for the connector gateway. Returns null when the Google Drive
+ * connector is not linked yet, so callers can produce a friendly message.
+ */
+export function gdriveHeaders(): Record<string, string> | null {
+  const lovableKey = typeof process !== "undefined" ? process.env.LOVABLE_API_KEY : undefined;
+  const connKey = typeof process !== "undefined" ? process.env.GOOGLE_DRIVE_API_KEY : undefined;
+  if (!lovableKey || !connKey) return null;
+  return { authorization: `Bearer ${lovableKey}`, "x-connection-api-key": connKey };
+}
+
+function requireHeaders(): Record<string, string> {
+  const h = gdriveHeaders();
+  if (!h)
+    throw new Error(
+      "Google Drive is not connected yet. Link the Google Drive connector in project settings and retry.",
+    );
+  return h;
 }
 
 type DriveFile = { id: string; name: string; size: number; mimeType: string; path: string };
 
-/**
- * Recursively list all video files inside a Google Drive folder,
- * handling pagination (nextPageToken) and subfolders.
- */
-async function listDriveFolder(
-  folderId: string,
-  apiKey: string,
-  pathPrefix: string = "",
-  depth: number = 0,
-): Promise<DriveFile[]> {
-  if (depth > 10) return []; // safety limit to prevent infinite recursion
+async function driveGet(path: string, params: Record<string, string>) {
+  const qs = new URLSearchParams({ supportsAllDrives: "true", ...params });
+  const res = await fetch(`${GATEWAY}${path}?${qs}`, { headers: requireHeaders() });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Google Drive request failed [${res.status}]: ${body.slice(0, 300)}`);
+  }
+  return res.json();
+}
+
+/** Recursively list every video file inside a Drive folder (handles pagination + subfolders). */
+async function listDriveFolder(folderId: string, pathPrefix = "", depth = 0): Promise<DriveFile[]> {
+  if (depth > 10) return [];
 
   const files: DriveFile[] = [];
   let pageToken: string | undefined;
 
   do {
-    const params = new URLSearchParams({
+    const params: Record<string, string> = {
       q: `'${folderId}' in parents and trashed=false`,
-      key: apiKey,
       fields: "nextPageToken,files(id,name,mimeType,size)",
       pageSize: "1000",
-    });
-    if (pageToken) params.set("pageToken", pageToken);
+      includeItemsFromAllDrives: "true",
+    };
+    if (pageToken) params.pageToken = pageToken;
 
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`);
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Failed to list Google Drive folder: ${res.statusText} - ${err}`);
-    }
-
-    const data = await res.json();
+    const data = await driveGet("/files", params);
 
     for (const f of data.files || []) {
       if (f.mimeType === "application/vnd.google-apps.folder") {
-        // Recurse into subfolder
         const subPath = pathPrefix ? `${pathPrefix}/${f.name}` : f.name;
-        const subFiles = await listDriveFolder(f.id, apiKey, subPath, depth + 1);
-        files.push(...subFiles);
+        files.push(...(await listDriveFolder(f.id, subPath, depth + 1)));
       } else if (f.size) {
         const isVideoMime = f.mimeType?.startsWith("video/");
-        const isVideoExt = /\.(mp4|mkv|webm|mov|m4v|avi|flv)$/i.test(f.name);
+        const isVideoExt = /\.(mp4|mkv|webm|mov|m4v|avi|flv|ts|m2ts|wmv|mpg|mpeg)$/i.test(f.name);
         if (isVideoMime || isVideoExt) {
-          files.push({
-            id: f.id,
-            name: f.name,
-            size: Number(f.size),
-            mimeType: f.mimeType,
-            path: pathPrefix,
-          });
+          files.push({ id: f.id, name: f.name, size: Number(f.size), mimeType: f.mimeType, path: pathPrefix });
         }
       }
     }
@@ -102,150 +106,134 @@ async function listDriveFolder(
   return files;
 }
 
-async function getFolderName(folderId: string, apiKey: string): Promise<string> {
+async function getFolderName(folderId: string): Promise<string> {
   try {
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${folderId}?key=${apiKey}&fields=name`,
-    );
-    if (res.ok) {
-      const meta = await res.json();
-      if (meta.name) return meta.name;
-    }
+    const meta = await driveGet(`/files/${folderId}`, { fields: "name" });
+    if (meta.name) return meta.name as string;
   } catch {
-    // ignore
+    /* ignore */
   }
   return "Course";
 }
 
-/**
- * Build a download URL for the ingest pump. The API key is NOT embedded in the
- * stored URL — instead, a special `gdrive:` prefix signals pumpIngest to resolve
- * the key at download time from the environment.
- */
+/** Stored source reference — never contains credentials. */
 function makeDownloadRef(fileId: string): string {
   return `gdrive:${fileId}`;
 }
 
-/**
- * At pump time, resolve a gdrive: reference to an actual download URL.
- * This keeps the API key out of the database.
- */
+/** At pump time, turn a `gdrive:` reference into a gateway media URL. */
 export function resolveGDriveUrl(sourceUrl: string): string | null {
   if (!sourceUrl.startsWith("gdrive:")) return null;
   const fileId = sourceUrl.slice(7);
-  const apiKey = typeof process !== 'undefined' ? process.env.GOOGLE_DRIVE_API_KEY : undefined;
-  if (!apiKey) return null;
-  // acknowledgeAbuse=true is REQUIRED for large files — without it Google returns 403
-  return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&acknowledgeAbuse=true&key=${apiKey}`;
+  return `${GATEWAY}/files/${fileId}?alt=media&acknowledgeAbuse=true&supportsAllDrives=true`;
 }
 
 export async function executeStartGDriveIngest(url: string, categoryId?: string | null) {
-    const parsed = extractDriveId(url);
-    if (!parsed) throw new Error("Could not extract a valid Google Drive folder or file ID from the URL.");
+  const parsed = extractDriveId(url);
+  if (!parsed) throw new Error("Could not extract a valid Google Drive folder or file ID from the URL.");
 
-    const apiKey = getApiKey();
-    const sb = await admin();
-    const filesToImport: DriveFile[] = [];
-    let folderName = "Course";
+  requireHeaders();
+  const sb = await admin();
+  const filesToImport: DriveFile[] = [];
+  let folderName = "Course";
 
-    if (parsed.type === "folder") {
-      folderName = await getFolderName(parsed.id, apiKey);
-      const found = await listDriveFolder(parsed.id, apiKey);
-      filesToImport.push(...found);
-    } else {
-      // Single file
-      const res = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${parsed.id}?key=${apiKey}&fields=id,name,mimeType,size`,
-      );
-      if (!res.ok) throw new Error("Failed to fetch Google Drive file metadata");
-      const f = await res.json();
-      if (f.size) {
-        filesToImport.push({
-          id: f.id,
-          name: f.name,
-          size: Number(f.size),
-          mimeType: f.mimeType || "video/mp4",
-          path: "",
-        });
-      }
+  if (parsed.type === "folder") {
+    folderName = await getFolderName(parsed.id);
+    filesToImport.push(...(await listDriveFolder(parsed.id)));
+  } else {
+    const f = await driveGet(`/files/${parsed.id}`, { fields: "id,name,mimeType,size" });
+    if (f.size) {
+      filesToImport.push({
+        id: f.id,
+        name: f.name,
+        size: Number(f.size),
+        mimeType: f.mimeType || "video/mp4",
+        path: "",
+      });
+    }
+  }
+
+  if (filesToImport.length === 0) {
+    throw new Error(
+      "No video files found. Make sure the link is shared with the connected Google account and contains video files.",
+    );
+  }
+
+  filesToImport.sort((a, b) => {
+    const pathCmp = a.path.localeCompare(b.path);
+    return pathCmp !== 0 ? pathCmp : a.name.localeCompare(b.name, undefined, { numeric: true });
+  });
+
+  const results = [];
+  let currentPath = "";
+  let partCounter = 1;
+
+  for (let i = 0; i < filesToImport.length; i++) {
+    const f = filesToImport[i]!;
+    const ext = f.name.split(".").pop()?.toLowerCase() ?? "mp4";
+
+    if (f.path !== currentPath) {
+      currentPath = f.path;
+      partCounter = 1;
     }
 
-    if (filesToImport.length === 0) {
-      throw new Error("No video files found to import. Ensure the link is public and contains video files.");
+    const { prettyTitle } = await import("@/lib/poster.server");
+    const clean = prettyTitle(f.name);
+    const pathLabel = f.path ? `${f.path.replace(/\//g, " - ")} - ` : "";
+    const title =
+      parsed.type === "folder" ? `${folderName} - ${pathLabel}Part ${partCounter} - ${clean}` : clean;
+
+    partCounter++;
+
+    const chunkCount = Math.ceil(f.size / CHUNK_SIZE);
+    const storagePath = `ingest/${crypto.randomUUID()}/${storageSafe(f.name)}`;
+    const downloadRef = makeDownloadRef(f.id);
+
+    const { data: video, error: vErr } = await sb
+      .from("videos")
+      .insert({
+        title,
+        storage_path: storagePath,
+        size_bytes: f.size,
+        mime_type: f.mimeType,
+        extension: ext,
+        category_id: categoryId ?? null,
+        uploaded_by: ANON_USER,
+        upload_mode: "chunked",
+        chunk_size_bytes: CHUNK_SIZE,
+        chunk_count: chunkCount,
+      })
+      .select("id")
+      .single();
+    if (vErr) throw vErr;
+
+    const { data: job, error: jErr } = await sb
+      .from("ingest_jobs")
+      .insert({
+        video_id: video.id,
+        source_url: downloadRef,
+        file_name: f.name,
+        storage_path: storagePath,
+        total_bytes: f.size,
+        chunk_size_bytes: CHUNK_SIZE,
+        chunk_count: chunkCount,
+        status: "queued",
+      })
+      .select("id")
+      .single();
+    if (jErr) throw jErr;
+
+    // Artwork lookup up front so the card looks right while it downloads.
+    try {
+      const { autoPoster } = await import("@/lib/poster.server");
+      await autoPoster(sb, video.id, f.name);
+    } catch {
+      /* best effort */
     }
 
-    // Sort by path then name for logical ordering
-    filesToImport.sort((a, b) => {
-      const pathCmp = a.path.localeCompare(b.path);
-      return pathCmp !== 0 ? pathCmp : a.name.localeCompare(b.name);
-    });
-
-    const results = [];
-    let currentPath = "";
-    let partCounter = 1;
-
-    for (let i = 0; i < filesToImport.length; i++) {
-      const f = filesToImport[i]!;
-      const ext = f.name.split(".").pop()?.toLowerCase() ?? "mp4";
-
-      // Reset part counter for each new subfolder
-      if (f.path !== currentPath) {
-        currentPath = f.path;
-        partCounter = 1;
-      }
-
-      // Build title: "CourseName - SubFolder - Part X - FileName"
-      const pathLabel = f.path ? `${f.path.replace(/\//g, " - ")} - ` : "";
-      const title =
-        parsed.type === "folder"
-          ? `${folderName} - ${pathLabel}Part ${partCounter} - ${f.name.replace(/\.[^/.]+$/, "")}`
-          : f.name.replace(/\.[^/.]+$/, "");
-      
-      partCounter++;
-
-      const chunkCount = Math.ceil(f.size / CHUNK_SIZE);
-      const storagePath = `ingest/${crypto.randomUUID()}/${storageSafe(f.name)}`;
-
-      // Store a gdrive: reference instead of embedding the API key
-      const downloadRef = makeDownloadRef(f.id);
-
-      const { data: video, error: vErr } = await sb
-        .from("videos")
-        .insert({
-          title,
-          storage_path: storagePath,
-          size_bytes: f.size,
-          mime_type: f.mimeType,
-          extension: ext,
-          category_id: categoryId ?? null,
-          uploaded_by: ANON_USER,
-          upload_mode: "chunked",
-          chunk_size_bytes: CHUNK_SIZE,
-          chunk_count: chunkCount,
-        })
-        .select("id")
-        .single();
-      if (vErr) throw vErr;
-
-      const { data: job, error: jErr } = await sb
-        .from("ingest_jobs")
-        .insert({
-          video_id: video.id,
-          source_url: downloadRef,
-          file_name: f.name,
-          storage_path: storagePath,
-          total_bytes: f.size,
-          chunk_size_bytes: CHUNK_SIZE,
-          chunk_count: chunkCount,
-          status: "queued",
-        })
-        .select("id")
-        .single();
-      if (jErr) throw jErr;
-
-      results.push({ jobId: job.id as string, videoId: video.id as string, title });
-    }
-    return { importedCount: filesToImport.length, jobs: results };
+    results.push({ jobId: job.id as string, videoId: video.id as string, title });
+  }
+  return { importedCount: filesToImport.length, jobs: results };
 }
 
 export const startGDriveIngest = createServerFn({ method: "POST" })

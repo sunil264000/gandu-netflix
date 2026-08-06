@@ -7,10 +7,11 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { resolveGDriveUrl } from "@/lib/gdrive.functions";
+import { resolveGDriveUrl, gdriveHeaders } from "@/lib/gdrive.functions";
 
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB parts for maximum concurrent throughput without OOM
 const FETCH_RETRIES = 6;
+const PUMP_BUDGET_MS = 40_000; // keep each pump well inside the request budget
 const ANON_USER = "00000000-0000-0000-0000-000000000000";
 
 async function admin() {
@@ -176,7 +177,13 @@ export const startUrlIngest = createServerFn({ method: "POST" })
     return executeStartUrlIngest(data.url, data.title, data.categoryId);
   });
 
-async function fetchPart(url: string, start: number, end: number, isGDrive = false): Promise<ArrayBuffer> {
+async function fetchPart(
+  url: string,
+  start: number,
+  end: number,
+  isGDrive = false,
+  extraHeaders: Record<string, string> = {},
+): Promise<ArrayBuffer> {
   const want = end - start + 1;
   let lastErr: unknown = null;
   const maxRetries = isGDrive ? 8 : FETCH_RETRIES;
@@ -188,12 +195,13 @@ async function fetchPart(url: string, start: number, end: number, isGDrive = fal
       let res: Response;
 
       if (isGDrive) {
-        // GDrive API: let fetch handle redirects normally (Google CDN redirects are fine)
+        // Drive/gateway handles its own redirects; auth headers must survive them.
         res = await fetch(url, {
           headers: {
             range: `bytes=${start}-${end}`,
             "user-agent": BROWSER_UA,
             accept: "*/*",
+            ...extraHeaders,
           },
           redirect: "follow",
         });
@@ -293,13 +301,18 @@ export async function executePump(jobId: string) {
       const t0 = Date.now();
       let bytesThisPump = 0;
 
-      // GDrive rate-limits aggressively, so cap at 2 parallel downloads.
-      // Old 24MB jobs also cap at 2 for memory safety. Everything else gets 8 for max speed.
+      // Parallel connections are what make this fast — a single stream is capped
+      // by the source host, so we saturate several ranged reads at once.
       const isNoRange = job.source_url.endsWith("#norange");
       const cleanUrl = job.source_url.replace(/#norange$/, "");
       const isGDrive = cleanUrl.startsWith("gdrive:");
-      const sourceUrl = resolveGDriveUrl(cleanUrl) ?? cleanUrl;
-      const parallelLimit = isGDrive ? 2 : cs >= 20 * 1024 * 1024 ? 2 : 8;
+      const resolvedGDrive = resolveGDriveUrl(cleanUrl);
+      if (isGDrive && !resolvedGDrive) {
+        throw new Error("Google Drive is not connected — link the Google Drive connector and retry this job.");
+      }
+      const sourceUrl = resolvedGDrive ?? cleanUrl;
+      const gdriveAuth = isGDrive ? (gdriveHeaders() ?? {}) : {};
+      const parallelLimit = isGDrive ? 6 : cs >= 20 * 1024 * 1024 ? 4 : 12;
       if (isNoRange) {
         // For non-range hosts, we MUST fetch the stream linearly and upload parts on the fly.
         // We will run until the stream completes, ignoring PUMP_BUDGET_MS.
@@ -416,7 +429,7 @@ export async function executePump(jobId: string) {
         let nextIndex = done;
         let bgError: any = null;
 
-        while ((nextIndex < job.chunk_count || activeUploads.length > 0) && Date.now() - t0 < 15_000) {
+        while ((nextIndex < job.chunk_count || activeUploads.length > 0) && Date.now() - t0 < PUMP_BUDGET_MS) {
           if (bgError) throw bgError;
 
           // Fill the sliding window up to parallelLimit
@@ -426,7 +439,7 @@ export async function executePump(jobId: string) {
             const end = Math.min(total - 1, start + cs - 1);
 
             const p = (async () => {
-              const buf = await fetchPart(sourceUrl, start, end, isGDrive);
+              const buf = await fetchPart(sourceUrl, start, end, isGDrive, gdriveAuth);
               bytesThisPump += buf.byteLength;
               const uploadCtrl = new AbortController();
               const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);

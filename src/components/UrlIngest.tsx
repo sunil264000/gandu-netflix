@@ -243,7 +243,7 @@ export function UrlIngest({ categoryId, onDone }: { categoryId: string | null; o
     ];
 
     let activePumps = pumping.current.size;
-    const MAX_CONCURRENT = 2; // Only download 2 files at a time to save bandwidth/memory
+    const MAX_CONCURRENT = 3; // parallel files; each file also fans out internally
 
     for (const job of sorted) {
       if (pumping.current.has(job.id)) continue;
