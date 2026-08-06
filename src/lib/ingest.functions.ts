@@ -176,7 +176,13 @@ export const startUrlIngest = createServerFn({ method: "POST" })
     return executeStartUrlIngest(data.url, data.title, data.categoryId);
   });
 
-async function fetchPart(url: string, start: number, end: number, isGDrive = false): Promise<ArrayBuffer> {
+async function fetchPart(
+  url: string,
+  start: number,
+  end: number,
+  isGDrive = false,
+  extraHeaders: Record<string, string> = {},
+): Promise<ArrayBuffer> {
   const want = end - start + 1;
   let lastErr: unknown = null;
   const maxRetries = isGDrive ? 8 : FETCH_RETRIES;
@@ -188,12 +194,13 @@ async function fetchPart(url: string, start: number, end: number, isGDrive = fal
       let res: Response;
 
       if (isGDrive) {
-        // GDrive API: let fetch handle redirects normally (Google CDN redirects are fine)
+        // Drive/gateway handles its own redirects; auth headers must survive them.
         res = await fetch(url, {
           headers: {
             range: `bytes=${start}-${end}`,
             "user-agent": BROWSER_UA,
             accept: "*/*",
+            ...extraHeaders,
           },
           redirect: "follow",
         });
