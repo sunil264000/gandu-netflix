@@ -13,12 +13,14 @@ import { Route as UploadsRouteImport } from './routes/uploads'
 import { Route as StudioRouteImport } from './routes/studio'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as LibraryRouteImport } from './routes/library'
+import { Route as CoursesRouteImport } from './routes/courses'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
-import { Route as CoursesRouteImport } from './routes/courses'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WatchSlugRouteImport } from './routes/watch.$slug'
+import { Route as ApiPublicTelegramRouteImport } from './routes/api/public/telegram'
 import { Route as ApiPublicHealthRouteImport } from './routes/api/public/health'
+import { Route as ApiPublicCronRouteImport } from './routes/api/public/cron'
 import { Route as ApiPublicVideosStreamRouteImport } from './routes/api/public/videos/stream'
 import { Route as ApiPublicVideosPlaylistRouteImport } from './routes/api/public/videos/playlist'
 import { Route as ApiPublicExtTokenRouteImport } from './routes/api/public/ext/token'
@@ -46,6 +48,11 @@ const LibraryRoute = LibraryRouteImport.update({
   path: '/library',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CoursesRoute = CoursesRouteImport.update({
+  id: '/courses',
+  path: '/courses',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
@@ -54,11 +61,6 @@ const AuthRoute = AuthRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CoursesRoute = CoursesRouteImport.update({
-  id: '/courses',
-  path: '/courses',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -71,9 +73,19 @@ const WatchSlugRoute = WatchSlugRouteImport.update({
   path: '/watch/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicTelegramRoute = ApiPublicTelegramRouteImport.update({
+  id: '/api/public/telegram',
+  path: '/api/public/telegram',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicHealthRoute = ApiPublicHealthRouteImport.update({
   id: '/api/public/health',
   path: '/api/public/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicCronRoute = ApiPublicCronRouteImport.update({
+  id: '/api/public/cron',
+  path: '/api/public/cron',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicVideosStreamRoute = ApiPublicVideosStreamRouteImport.update({
@@ -117,7 +129,9 @@ export interface FileRoutesByFullPath {
   '/studio': typeof StudioRoute
   '/uploads': typeof UploadsRoute
   '/watch/$slug': typeof WatchSlugRoute
+  '/api/public/cron': typeof ApiPublicCronRoute
   '/api/public/health': typeof ApiPublicHealthRoute
+  '/api/public/telegram': typeof ApiPublicTelegramRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -135,7 +149,9 @@ export interface FileRoutesByTo {
   '/studio': typeof StudioRoute
   '/uploads': typeof UploadsRoute
   '/watch/$slug': typeof WatchSlugRoute
+  '/api/public/cron': typeof ApiPublicCronRoute
   '/api/public/health': typeof ApiPublicHealthRoute
+  '/api/public/telegram': typeof ApiPublicTelegramRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -154,7 +170,9 @@ export interface FileRoutesById {
   '/studio': typeof StudioRoute
   '/uploads': typeof UploadsRoute
   '/watch/$slug': typeof WatchSlugRoute
+  '/api/public/cron': typeof ApiPublicCronRoute
   '/api/public/health': typeof ApiPublicHealthRoute
+  '/api/public/telegram': typeof ApiPublicTelegramRoute
   '/api/public/ext/activate': typeof ApiPublicExtActivateRoute
   '/api/public/ext/exec': typeof ApiPublicExtExecRoute
   '/api/public/ext/heartbeat': typeof ApiPublicExtHeartbeatRoute
@@ -174,7 +192,9 @@ export interface FileRouteTypes {
     | '/studio'
     | '/uploads'
     | '/watch/$slug'
+    | '/api/public/cron'
     | '/api/public/health'
+    | '/api/public/telegram'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -192,7 +212,9 @@ export interface FileRouteTypes {
     | '/studio'
     | '/uploads'
     | '/watch/$slug'
+    | '/api/public/cron'
     | '/api/public/health'
+    | '/api/public/telegram'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -210,7 +232,9 @@ export interface FileRouteTypes {
     | '/studio'
     | '/uploads'
     | '/watch/$slug'
+    | '/api/public/cron'
     | '/api/public/health'
+    | '/api/public/telegram'
     | '/api/public/ext/activate'
     | '/api/public/ext/exec'
     | '/api/public/ext/heartbeat'
@@ -229,7 +253,9 @@ export interface RootRouteChildren {
   StudioRoute: typeof StudioRoute
   UploadsRoute: typeof UploadsRoute
   WatchSlugRoute: typeof WatchSlugRoute
+  ApiPublicCronRoute: typeof ApiPublicCronRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
+  ApiPublicTelegramRoute: typeof ApiPublicTelegramRoute
   ApiPublicExtActivateRoute: typeof ApiPublicExtActivateRoute
   ApiPublicExtExecRoute: typeof ApiPublicExtExecRoute
   ApiPublicExtHeartbeatRoute: typeof ApiPublicExtHeartbeatRoute
@@ -268,6 +294,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LibraryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/courses': {
+      id: '/courses'
+      path: '/courses'
+      fullPath: '/courses'
+      preLoaderRoute: typeof CoursesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
@@ -280,13 +313,6 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/courses': {
-      id: '/courses'
-      path: '/courses'
-      fullPath: '/courses'
-      preLoaderRoute: typeof CoursesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -303,11 +329,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WatchSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/telegram': {
+      id: '/api/public/telegram'
+      path: '/api/public/telegram'
+      fullPath: '/api/public/telegram'
+      preLoaderRoute: typeof ApiPublicTelegramRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/health': {
       id: '/api/public/health'
       path: '/api/public/health'
       fullPath: '/api/public/health'
       preLoaderRoute: typeof ApiPublicHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/cron': {
+      id: '/api/public/cron'
+      path: '/api/public/cron'
+      fullPath: '/api/public/cron'
+      preLoaderRoute: typeof ApiPublicCronRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/videos/stream': {
@@ -365,7 +405,9 @@ const rootRouteChildren: RootRouteChildren = {
   StudioRoute: StudioRoute,
   UploadsRoute: UploadsRoute,
   WatchSlugRoute: WatchSlugRoute,
+  ApiPublicCronRoute: ApiPublicCronRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,
+  ApiPublicTelegramRoute: ApiPublicTelegramRoute,
   ApiPublicExtActivateRoute: ApiPublicExtActivateRoute,
   ApiPublicExtExecRoute: ApiPublicExtExecRoute,
   ApiPublicExtHeartbeatRoute: ApiPublicExtHeartbeatRoute,

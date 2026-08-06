@@ -328,7 +328,7 @@ export async function executePump(jobId: string) {
           const uploadCtrl = new AbortController();
           const uploadTimer = setTimeout(() => uploadCtrl.abort(), 60_000);
           try {
-            const { error: upErr } = await sb.storage.from("videos").upload(partPath(job.storage_path, index), new Blob([buf]), { upsert: true, contentType: "application/octet-stream", cacheControl: "31536000" });
+            const { error: upErr } = await sb.storage.from("videos").upload(partPath(job.storage_path, index), new Blob([buf as unknown as BlobPart]), { upsert: true, contentType: "application/octet-stream", cacheControl: "31536000" });
             if (upErr) throw new Error(`store part ${index}: ${upErr.message}`);
             
             finishedIndexes.add(index);
