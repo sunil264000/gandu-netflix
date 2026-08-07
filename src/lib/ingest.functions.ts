@@ -292,6 +292,7 @@ export async function executePump(jobId: string) {
     }
 
     let finalStatus = "running";
+    let reportedDone = Number(job.chunks_done);
     try {
       await sb.from("ingest_jobs").update({ status: "running", error: null }).eq("id", job.id);
 
@@ -424,6 +425,7 @@ export async function executePump(jobId: string) {
         await Promise.all(activeUploads);
         if (bgError) throw bgError;
         done = highestCompleted;
+        reportedDone = done;
         finalStatus = done >= job.chunk_count ? "done" : "running";
       } else {
         // Run multiple back-to-back using a sliding window for maximum throughput!
@@ -479,6 +481,7 @@ export async function executePump(jobId: string) {
 
         // If Promise.all succeeds without bgError, then all chunks from `done` to `nextIndex - 1` have completed!
         done = nextIndex;
+        reportedDone = done;
         const elapsed = (Date.now() - t0) / 1000;
         await sb
           .from("ingest_jobs")
@@ -504,7 +507,7 @@ export async function executePump(jobId: string) {
       finalStatus = "error";
     }
 
-    return { status: finalStatus, chunksDone: done, chunkCount: job.chunk_count };
+    return { status: finalStatus, chunksDone: reportedDone, chunkCount: job.chunk_count };
 }
 
 export const pumpIngest = createServerFn({ method: "POST" })
