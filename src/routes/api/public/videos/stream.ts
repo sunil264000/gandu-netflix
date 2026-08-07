@@ -32,7 +32,9 @@ const DOWNLOAD_MAX_RESPONSE_BYTES = 192 * 1024 * 1024;
 const SIGNED_URL_TTL = 60 * 60 * 12;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 11;
 const CHUNK_FETCH_RETRIES = 4;
-const CHUNK_FETCH_TIMEOUT_MS = 30_000;
+// A part is consumed in order, so one hung storage request blocks every later
+// part even when those requests have already completed. Fail fast and retry.
+const CHUNK_FETCH_TIMEOUT_MS = 10_000;
 
 
 // Browsers demux by Content-Type. Uploads recorded some files as the invalid
@@ -367,12 +369,18 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     // range request is served from cache with near-zero latency.
     const prewarmAhead = () => {
       if (preview || download) return;
+      // Under load, serving active viewers takes priority over speculative
+      // storage reads and URL signing.
+      if (activeStreams > 32) return;
       const from = lastPart + 1;
-      for (let p = from; p < Math.min(from + PREWARM_URL_PARTS, chunkCount); p += 1) {
+      const warmDivisor = activeStreams > 12 ? 4 : activeStreams > 4 ? 2 : 1;
+      const urlWarmCount = Math.max(4, Math.floor(PREWARM_URL_PARTS / warmDivisor));
+      const cacheWarmCount = Math.max(1, Math.floor(PREWARM_CACHE_PARTS / warmDivisor));
+      for (let p = from; p < Math.min(from + urlWarmCount, chunkCount); p += 1) {
         void getSignedUrl(`${video.storage_path}.part-${String(p).padStart(6, "0")}`).catch(() => {});
       }
       if (!edgeCache) return;
-      for (let p = from; p < Math.min(from + PREWARM_CACHE_PARTS, chunkCount); p += 1) {
+      for (let p = from; p < Math.min(from + cacheWarmCount, chunkCount); p += 1) {
         const partPath = `${video.storage_path}.part-${String(p).padStart(6, "0")}`;
         const key = wholeKeyFor(partPath);
         const partBytes = Math.min(chunkSize, total - p * chunkSize);

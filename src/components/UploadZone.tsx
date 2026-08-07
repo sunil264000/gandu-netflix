@@ -82,7 +82,7 @@ async function uploadChunkedVideo(file: File, basePath: string, onProgress?: (pc
         return;
       } catch (e) {
         lastErr = e;
-        await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+        await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 250));
       }
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));

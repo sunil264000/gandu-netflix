@@ -45,6 +45,16 @@ const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 const DRIFT_TOLERANCE = 0.06; // start bending the audio clock past this
 const HARD_RESYNC = 0.45; // only re-seek the audio past this much drift
 
+function playbackSessionId(src: string) {
+  if (typeof window === "undefined") return "server";
+  const key = `vault:playback:${src}`;
+  const existing = sessionStorage.getItem(key);
+  if (existing) return existing;
+  const created = crypto.randomUUID().slice(0, 12);
+  sessionStorage.setItem(key, created);
+  return created;
+}
+
 export function VideoPlayer({
   src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions,
   audioSrc, audioLabel, playlistUrl, onNoAudio,
@@ -53,7 +63,9 @@ export function VideoPlayer({
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
-  const sid = useMemo(() => Math.random().toString(36).slice(2, 10), []);
+  // Keep sequential range ramping stable when navigating away and back to the
+  // same title in this tab.
+  const sid = useMemo(() => playbackSessionId(src), [src]);
   const playSrc = useMemo(() => `${src}${src.includes("?") ? "&" : "?"}sid=${sid}`, [src, sid]);
   // A second, throttled element used only to render real frames while scrubbing.
   // It streams in "preview" mode so it never disturbs the main sequential read.
@@ -340,7 +352,7 @@ export function VideoPlayer({
           stuck = 0;
           try {
             const t = v.currentTime;
-            v.currentTime = Math.min((v.duration || t) - 0.1, t + 0.001);
+            v.currentTime = Math.min((v.duration || t) - 0.1, t + 0.075);
             v.play().catch(() => {});
           } catch { /* ignore */ }
         }
