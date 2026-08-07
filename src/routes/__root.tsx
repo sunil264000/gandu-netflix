@@ -133,6 +133,29 @@ function RootComponent() {
     }
   }, []);
 
+  // Keep server-side imports moving from every page. The uploads screen owns
+  // its own higher-detail pump, so yield there to avoid duplicate work.
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const keepIngesting = async () => {
+      if (stopped) return;
+      if (!document.hidden && window.location.pathname !== "/uploads") {
+        try {
+          await fetch("/api/public/cron", { cache: "no-store" });
+        } catch {
+          // A later pass resumes from the last completed part.
+        }
+      }
+      if (!stopped) timer = setTimeout(keepIngesting, 5000);
+    };
+    timer = setTimeout(keepIngesting, 1000);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <style>{fxKeyframes}</style>
