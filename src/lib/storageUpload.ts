@@ -27,6 +27,7 @@ export function tusUploadFile(
         cacheControl: "3600",
       },
       chunkSize: 6 * 1024 * 1024,
+      parallelUploads: 4,
       onError: (e) => reject(e),
       onProgress: (sent, total) => onProgress?.((sent / total) * 100),
       onSuccess: () => resolve(),

@@ -45,6 +45,16 @@ const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 const DRIFT_TOLERANCE = 0.06; // start bending the audio clock past this
 const HARD_RESYNC = 0.45; // only re-seek the audio past this much drift
 
+function playbackSessionId(src: string) {
+  if (typeof window === "undefined") return "server";
+  const key = `vault:playback:${src}`;
+  const existing = sessionStorage.getItem(key);
+  if (existing) return existing;
+  const created = crypto.randomUUID().slice(0, 12);
+  sessionStorage.setItem(key, created);
+  return created;
+}
+
 export function VideoPlayer({
   src, poster, startAt = 0, onProgress, onEnded, autoPlay, captions,
   audioSrc, audioLabel, playlistUrl, onNoAudio,
@@ -53,7 +63,9 @@ export function VideoPlayer({
   const wrapRef = useRef<HTMLDivElement>(null);
   const vidRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
-  const sid = useMemo(() => Math.random().toString(36).slice(2, 10), []);
+  // Keep sequential range ramping stable when navigating away and back to the
+  // same title in this tab.
+  const sid = useMemo(() => playbackSessionId(src), [src]);
   const playSrc = useMemo(() => `${src}${src.includes("?") ? "&" : "?"}sid=${sid}`, [src, sid]);
   // A second, throttled element used only to render real frames while scrubbing.
   // It streams in "preview" mode so it never disturbs the main sequential read.
@@ -127,6 +139,19 @@ export function VideoPlayer({
   const lastTap = useRef<{ t: number; side: "l" | "r" | null }>({ t: 0, side: null });
   const noAudioFired = useRef(false);
   const SNAP_BUCKET = 2; // seconds per cached snapshot
+  const MAX_SNAPSHOTS = 120;
+
+  const rememberSnapshot = useCallback((bucket: number, url: string) => {
+    const cache = snapCache.current;
+    cache.set(bucket, url);
+    // Long 4K/8K movies previously accumulated thousands of base64 frames in
+    // memory. Keep a rolling preview cache so playback remains smooth.
+    while (cache.size > MAX_SNAPSHOTS) {
+      const oldest = cache.keys().next().value;
+      if (typeof oldest !== "number") break;
+      cache.delete(oldest);
+    }
+  }, []);
 
 
 
@@ -155,12 +180,12 @@ export function VideoPlayer({
       if (!ctx) return null;
       ctx.drawImage(el, 0, 0, W, H);
       const url = c.toDataURL("image/jpeg", 0.62);
-      snapCache.current.set(Math.round(atTime / SNAP_BUCKET), url);
+      rememberSnapshot(Math.round(atTime / SNAP_BUCKET), url);
       return url;
     } catch {
       return null;
     }
-  }, []);
+  }, [rememberSnapshot]);
 
   const nearestSnapshot = useCallback((t: number) => {
     const bucket = Math.round(t / SNAP_BUCKET);
@@ -249,9 +274,10 @@ export function VideoPlayer({
 
 
       if (onProgress && v.currentTime - lastReport.current > 5) { lastReport.current = v.currentTime; onProgress(v.currentTime, v.duration); }
-      // Capture a snapshot at most every ~1s while playing, bucket by SNAP_BUCKET
+      // Capture occasional nearby frames for instant scrub previews. The
+      // dedicated preview decoder handles arbitrary positions.
       const now = performance.now();
-      if (!v.paused && !v.seeking && v.videoWidth > 0 && now - lastSnap.current > 900) {
+      if (!v.paused && !v.seeking && v.videoWidth > 0 && now - lastSnap.current > 4000) {
         lastSnap.current = now;
         const bucket = Math.floor(v.currentTime / SNAP_BUCKET);
         if (!snapCache.current.has(bucket)) {
@@ -262,7 +288,7 @@ export function VideoPlayer({
             const ctx = c.getContext("2d");
             if (ctx) {
               ctx.drawImage(v, 0, 0, W, H);
-              snapCache.current.set(bucket, c.toDataURL("image/jpeg", 0.6));
+              rememberSnapshot(bucket, c.toDataURL("image/jpeg", 0.58));
             }
           } catch { /* CORS or codec issue — ignore */ }
         }
@@ -299,7 +325,7 @@ export function VideoPlayer({
       v.removeEventListener("playing", onCanPlay);
       v.removeEventListener("ratechange", onRate);
     };
-  }, [startAt, onProgress, onEnded, kickHide, audioSrc, onNoAudio]);
+  }, [startAt, onProgress, onEnded, kickHide, audioSrc, onNoAudio, rememberSnapshot]);
 
   useEffect(() => {
     const onFs = () => setFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
@@ -326,7 +352,7 @@ export function VideoPlayer({
           stuck = 0;
           try {
             const t = v.currentTime;
-            v.currentTime = Math.min((v.duration || t) - 0.1, t + 0.001);
+            v.currentTime = Math.min((v.duration || t) - 0.1, t + 0.075);
             v.play().catch(() => {});
           } catch { /* ignore */ }
         }
@@ -680,7 +706,7 @@ export function VideoPlayer({
   return (
     <div
       ref={wrapRef}
-      className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden group select-none"
+      className="relative w-full aspect-video bg-black rounded-lg sm:rounded-xl overflow-hidden group select-none ring-1 ring-white/10 shadow-2xl shadow-black/50"
       onMouseMove={kickHide}
       onMouseLeave={() => { if (playing && !menu) setShowControls(false); }}
       onClick={handleTap}
@@ -730,8 +756,9 @@ export function VideoPlayer({
 
       {loading && (
         <div className="absolute inset-0 grid place-items-center pointer-events-none">
-          <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm grid place-items-center">
-            <Loader2 className="w-9 h-9 text-white animate-spin" />
+          <div className="flex items-center gap-3 rounded-full bg-black/70 px-4 py-2.5 backdrop-blur-md ring-1 ring-white/10">
+            <Loader2 className="w-5 h-5 text-red-400 animate-spin" />
+            <span className="text-xs font-medium text-white/80">Loading stream</span>
           </div>
         </div>
       )}

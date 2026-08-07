@@ -7,17 +7,20 @@ import { log, newRequestId, errShape } from "@/lib/server-log";
 // (fast time-to-first-frame), then the window RAMPS UP on every sequential
 // follow-up until it's effectively "the rest of the file in one connection".
 const START_RESPONSE_BYTES = 32 * 1024 * 1024; // first window after a seek
-const MAX_RESPONSE_BYTES = 1024 * 1024 * 1024; // steady-state ceiling
-const WINDOW_RAMP = 8; // window multiplier per sequential request
+// Keep a response below the platform subrequest ceiling even for legacy 8 MB
+// imports. The previous 1 GB window could require 128 upstream part reads and
+// die halfway through, which surfaced in the player as repeated buffering.
+const MAX_RESPONSE_BYTES = 320 * 1024 * 1024;
+const WINDOW_RAMP = 4; // quick ramp without creating oversized responses
 const FAST_START_ZONE = 64 * 1024 * 1024; // tolerance for "still sequential"
-const PARALLEL_FETCHES = 24; // upstream part reads in flight
+const PARALLEL_FETCHES = 16; // upstream part reads in flight
 const PREWARM_URL_PARTS = 32; // signed URLs warmed beyond the served window
 const PREVIEW_RESPONSE_BYTES = 1 * 1024 * 1024; // tiny window for scrub previews
-const PREWARM_CACHE_PARTS = 6; // whole parts pushed into edge cache ahead of playback
+const PREWARM_CACHE_PARTS = 4; // whole parts pushed into edge cache ahead of playback
 // 8K / very-high-bitrate sources burn through a window far faster than 1080p,
 // so the start window scales with the file's average bitrate.
 const HUGE_FILE_BYTES = 20 * 1024 * 1024 * 1024; // ~8K remux territory
-const HUGE_START_RESPONSE_BYTES = 96 * 1024 * 1024;
+const HUGE_START_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 // Download mode: the client opens many connections itself, so each response
 // should honour the exact requested range (no ramping, no read-ahead) and just
@@ -29,7 +32,9 @@ const DOWNLOAD_MAX_RESPONSE_BYTES = 192 * 1024 * 1024;
 const SIGNED_URL_TTL = 60 * 60 * 12;
 const SIGNED_URL_CACHE_MS = 60 * 60 * 1000 * 11;
 const CHUNK_FETCH_RETRIES = 4;
-const CHUNK_FETCH_TIMEOUT_MS = 30_000;
+// A part is consumed in order, so one hung storage request blocks every later
+// part even when those requests have already completed. Fail fast and retry.
+const CHUNK_FETCH_TIMEOUT_MS = 10_000;
 
 
 // Browsers demux by Content-Type. Uploads recorded some files as the invalid
@@ -225,7 +230,11 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     // Fair-share under load: one viewer alone may hold a 1 GB window, but with
     // hundreds of concurrent streams on the same isolate the windows shrink so
     // every viewer keeps getting bytes instead of a few hogging the fan-out.
-    const window = preview ? rawWindow : Math.max(START_RESPONSE_BYTES / 4, Math.floor(rawWindow / loadDivisor()));
+    // A response may span at most 40 stored parts. This makes the ceiling safe
+    // for both old 8 MB imports and newer, larger upload parts.
+    const partSafeWindow = Math.max(chunkSize, chunkSize * 40);
+    const fairWindow = preview ? rawWindow : Math.max(START_RESPONSE_BYTES / 4, Math.floor(rawWindow / loadDivisor()));
+    const window = Math.min(fairWindow, partSafeWindow);
     if (range.end - range.start + 1 > window) {
       range.end = Math.min(range.start + window - 1, total - 1);
     }
@@ -360,12 +369,18 @@ async function handleStream(request: Request, headOnly = false): Promise<Respons
     // range request is served from cache with near-zero latency.
     const prewarmAhead = () => {
       if (preview || download) return;
+      // Under load, serving active viewers takes priority over speculative
+      // storage reads and URL signing.
+      if (activeStreams > 32) return;
       const from = lastPart + 1;
-      for (let p = from; p < Math.min(from + PREWARM_URL_PARTS, chunkCount); p += 1) {
+      const warmDivisor = activeStreams > 12 ? 4 : activeStreams > 4 ? 2 : 1;
+      const urlWarmCount = Math.max(4, Math.floor(PREWARM_URL_PARTS / warmDivisor));
+      const cacheWarmCount = Math.max(1, Math.floor(PREWARM_CACHE_PARTS / warmDivisor));
+      for (let p = from; p < Math.min(from + urlWarmCount, chunkCount); p += 1) {
         void getSignedUrl(`${video.storage_path}.part-${String(p).padStart(6, "0")}`).catch(() => {});
       }
       if (!edgeCache) return;
-      for (let p = from; p < Math.min(from + PREWARM_CACHE_PARTS, chunkCount); p += 1) {
+      for (let p = from; p < Math.min(from + cacheWarmCount, chunkCount); p += 1) {
         const partPath = `${video.storage_path}.part-${String(p).padStart(6, "0")}`;
         const key = wholeKeyFor(partPath);
         const partBytes = Math.min(chunkSize, total - p * chunkSize);

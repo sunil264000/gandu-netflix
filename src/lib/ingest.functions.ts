@@ -292,6 +292,7 @@ export async function executePump(jobId: string) {
     }
 
     let finalStatus = "running";
+    let reportedDone = Number(job.chunks_done);
     try {
       await sb.from("ingest_jobs").update({ status: "running", error: null }).eq("id", job.id);
 
@@ -312,7 +313,10 @@ export async function executePump(jobId: string) {
       }
       const sourceUrl = resolvedGDrive ?? cleanUrl;
       const gdriveAuth = isGDrive ? (gdriveHeaders() ?? {}) : {};
-      const parallelLimit = isGDrive ? 6 : cs >= 20 * 1024 * 1024 ? 4 : 12;
+      // Drive commonly throttles each individual ranged request. Ten modest
+      // lanes give large imports substantially more throughput without holding
+      // an unsafe amount of memory in the worker (10 × 8 MB for Drive jobs).
+      const parallelLimit = isGDrive ? 10 : cs >= 20 * 1024 * 1024 ? 6 : 12;
       if (isNoRange) {
         // For non-range hosts, we MUST fetch the stream linearly and upload parts on the fly.
         // We will run until the stream completes, ignoring PUMP_BUDGET_MS.
@@ -420,6 +424,8 @@ export async function executePump(jobId: string) {
         
         await Promise.all(activeUploads);
         if (bgError) throw bgError;
+        done = highestCompleted;
+        reportedDone = done;
         finalStatus = done >= job.chunk_count ? "done" : "running";
       } else {
         // Run multiple back-to-back using a sliding window for maximum throughput!
@@ -475,6 +481,7 @@ export async function executePump(jobId: string) {
 
         // If Promise.all succeeds without bgError, then all chunks from `done` to `nextIndex - 1` have completed!
         done = nextIndex;
+        reportedDone = done;
         const elapsed = (Date.now() - t0) / 1000;
         await sb
           .from("ingest_jobs")
@@ -500,7 +507,7 @@ export async function executePump(jobId: string) {
       finalStatus = "error";
     }
 
-    return { status: finalStatus, chunksDone: job.chunks_done, chunkCount: job.chunk_count };
+    return { status: finalStatus, chunksDone: reportedDone, chunkCount: job.chunk_count };
 }
 
 export const pumpIngest = createServerFn({ method: "POST" })

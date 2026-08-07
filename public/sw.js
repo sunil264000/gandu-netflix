@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gandu-megabuffer-v1';
+const CACHE_NAME = 'gandu-megabuffer-v2';
 const DB_NAME = 'MegaBufferDB';
 const STORE_NAME = 'chunks';
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB chunks
@@ -47,6 +47,7 @@ self.addEventListener('fetch', (event) => {
 
     const rangeHeader = event.request.headers.get('Range');
     const videoId = url.searchParams.get('id');
+    const totalBytes = Number(url.searchParams.get('total') || 0);
 
     if (rangeHeader && videoId) {
       event.respondWith(
@@ -76,14 +77,10 @@ self.addEventListener('fetch', (event) => {
               const bytesToServe = chunkData.slice(offsetInChunk);
               const endByte = startByte + bytesToServe.byteLength - 1;
 
-              // We need the total size to return a proper 206, but SW doesn't know total size.
-              // We can fake the total size or read it from a query param?
-              // Actually, returning a wildcard total size `*` is valid for 206!
-              
               const headers = new Headers();
               headers.set('Content-Type', 'video/mp4');
               headers.set('Content-Length', bytesToServe.byteLength.toString());
-              headers.set('Content-Range', `bytes ${startByte}-${endByte}/*`);
+              headers.set('Content-Range', `bytes ${startByte}-${endByte}/${totalBytes || '*'}`);
               headers.set('Accept-Ranges', 'bytes');
               
               return new Response(bytesToServe, {

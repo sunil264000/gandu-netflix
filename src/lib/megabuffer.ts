@@ -94,7 +94,7 @@ export async function pumpMegaBuffer(videoId: string, totalBytes: number, signal
     const endByte = Math.min((i + 1) * MEGA_CHUNK_SIZE - 1, totalBytes - 1);
     
     try {
-      const resp = await fetch(`/api/public/videos/stream?id=${videoId}&bypass=true`, {
+      const resp = await fetch(`/api/public/videos/stream?id=${videoId}&bypass=true&total=${totalBytes}`, {
         headers: {
           'Range': `bytes=${startByte}-${endByte}`
         },
